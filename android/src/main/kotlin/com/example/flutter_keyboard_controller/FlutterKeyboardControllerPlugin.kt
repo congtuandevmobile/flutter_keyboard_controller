@@ -132,6 +132,8 @@ class FlutterKeyboardControllerPlugin :
         val act = activity ?: return
         val decorView = act.window.decorView
 
+        WindowCompat.setDecorFitsSystemWindows(act.window, false)
+
         // Allow insets to reach the callback without Flutter blocking them.
         // We use CONTINUE_ON_SUBTREE so Flutter's own inset handling is unaffected.
         val callback = object :
@@ -154,7 +156,9 @@ class FlutterKeyboardControllerPlugin :
                     rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
                 val density = decorView.resources.displayMetrics.density
 
-                endHeight = max(0, bounds.upperBound.bottom - navHeight)
+                // endHeight = max(0, bounds.upperBound.bottom - navHeight)
+                endHeight = max(0, bounds.upperBound.bottom)
+
                 val endDp = endHeight.toDouble() / density
                 val isShowing = endHeight > 0
 
@@ -172,9 +176,10 @@ class FlutterKeyboardControllerPlugin :
                 runningAnimations: List<WindowInsetsAnimationCompat>,
             ): WindowInsetsCompat {
                 val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-                val navBottom =
-                    insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-                val actualPx = max(0, imeBottom - navBottom)
+                // val navBottom =
+                    // insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
+                // val actualPx = max(0, imeBottom - navBottom)
+                val actualPx = imeBottom
                 val density = decorView.resources.displayMetrics.density
                 val heightDp = actualPx.toDouble() / density
 
@@ -201,9 +206,11 @@ class FlutterKeyboardControllerPlugin :
                 val rootInsets = ViewCompat.getRootWindowInsets(decorView)
                 val imeBottom =
                     rootInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
-                val navBottom =
-                    rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
-                val actualPx = max(0, imeBottom - navBottom)
+                // val navBottom =
+                //    rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+                // val actualPx = max(0, imeBottom - navBottom)
+                val actualPx = max(0, imeBottom)
+
                 val density = decorView.resources.displayMetrics.density
                 val heightDp = actualPx.toDouble() / density
 
@@ -227,7 +234,7 @@ class FlutterKeyboardControllerPlugin :
         ViewCompat.setWindowInsetsAnimationCallback(decorView, null)
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    private val reusableEventMap = HashMap<String, Any>()
 
     private fun emitEvent(
         type: String,
@@ -235,15 +242,14 @@ class FlutterKeyboardControllerPlugin :
         progress: Double,
         duration: Double,
     ) {
-        val event = mapOf(
-            "type" to type,
-            "height" to height,
-            "progress" to progress,
-            "duration" to duration,
-            "timestamp" to System.currentTimeMillis().toDouble(),
-        )
+        reusableEventMap["type"] = type
+        reusableEventMap["height"] = height
+        reusableEventMap["progress"] = progress
+        reusableEventMap["duration"] = duration
+        reusableEventMap["timestamp"] = System.currentTimeMillis().toDouble()
+
         activity?.runOnUiThread {
-            keyboardEventSink?.success(event)
+            keyboardEventSink?.success(reusableEventMap)
         }
     }
 }

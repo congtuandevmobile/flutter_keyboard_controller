@@ -10,33 +10,36 @@ class KeyboardChatDemo extends StatefulWidget {
 
 class _KeyboardChatDemoState extends State<KeyboardChatDemo> {
   KeyboardLiftBehavior _behavior = KeyboardLiftBehavior.whenAtEnd;
-  final _controller = TextEditingController();
+  final _inputController = TextEditingController();
+
   final List<_Message> _messages = List.generate(
     20,
-    (i) => _Message(
-      text: 'Message ${20 - i}',
-      isMe: i.isEven,
-    ),
+    (i) => _Message(text: 'Message ${20 - i}', isMe: i.isEven),
   );
 
   void _send() {
-    final text = _controller.text.trim();
+    final text = _inputController.text.trim();
     if (text.isEmpty) return;
     setState(() {
       _messages.insert(0, _Message(text: text, isMe: true));
-      _controller.clear();
+      _inputController.clear();
     });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _inputController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final safeAreaBottom = MediaQuery.of(context).viewPadding.bottom;
+    // InputBar height: top-padding(8) + row(~40) + bottom-padding(8) + gap(16)
+    const extraBottomPadding = 56.0 + 16.0;
+
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: const Text('KeyboardChatScrollView'),
         bottom: PreferredSize(
@@ -46,42 +49,96 @@ class _KeyboardChatDemoState extends State<KeyboardChatDemo> {
             child: SegmentedButton<KeyboardLiftBehavior>(
               segments: const [
                 ButtonSegment(
-                    value: KeyboardLiftBehavior.always,
-                    label: Text('always')),
+                  value: KeyboardLiftBehavior.always,
+                  label: Text('always'),
+                ),
                 ButtonSegment(
-                    value: KeyboardLiftBehavior.whenAtEnd,
-                    label: Text('whenAtEnd')),
+                  value: KeyboardLiftBehavior.whenAtEnd,
+                  label: Text('whenAtEnd'),
+                ),
                 ButtonSegment(
-                    value: KeyboardLiftBehavior.persistent,
-                    label: Text('persist')),
+                  value: KeyboardLiftBehavior.persistent,
+                  label: Text('persist'),
+                ),
                 ButtonSegment(
-                    value: KeyboardLiftBehavior.never,
-                    label: Text('never')),
+                  value: KeyboardLiftBehavior.never,
+                  label: Text('never'),
+                ),
               ],
               selected: {_behavior},
-              onSelectionChanged: (s) =>
-                  setState(() => _behavior = s.first),
+              onSelectionChanged: (s) => setState(() {
+                _behavior = s.first;
+              }),
             ),
           ),
         ),
       ),
-      resizeToAvoidBottomInset: false,
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
+          Positioned.fill(
             child: KeyboardChatScrollView(
               liftBehavior: _behavior,
+              extraBottomPadding: extraBottomPadding,
+              safeAreaBottom: safeAreaBottom,
               children: _messages
                   .map((m) => _MessageBubble(message: m))
                   .toList(),
             ),
           ),
-          _InputBar(controller: _controller, onSend: _send),
+          _AnimatedInputBar(
+            behavior: _behavior,
+            child: _InputBar(controller: _inputController, onSend: _send),
+          ),
         ],
       ),
     );
   }
 }
+
+class _AnimatedInputBar extends StatefulWidget {
+  const _AnimatedInputBar({required this.behavior, required this.child});
+  final KeyboardLiftBehavior behavior;
+  final Widget child;
+
+  @override
+  State<_AnimatedInputBar> createState() => _AnimatedInputBarState();
+}
+
+class _AnimatedInputBarState extends State<_AnimatedInputBar> {
+  double _persistentLift = 0;
+
+  double _bottomFor(double keyboardH) {
+    if (widget.behavior == KeyboardLiftBehavior.persistent) {
+      if (keyboardH > 0) _persistentLift = keyboardH;
+      return _persistentLift;
+    }
+    _persistentLift = 0;
+    return keyboardH;
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedInputBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.behavior != widget.behavior) _persistentLift = 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final animation = KeyboardControllerScope.maybeOf(context);
+    return ValueListenableBuilder<double>(
+      valueListenable: animation?.heightNotifier ?? _kZero,
+      child: widget.child,
+      builder: (_, keyboardH, child) => Positioned(
+        left: 0,
+        right: 0,
+        bottom: _bottomFor(keyboardH),
+        child: child!,
+      ),
+    );
+  }
+}
+
+final _kZero = ValueNotifier(0.0);
 
 class _Message {
   final String text;
@@ -96,13 +153,13 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Align(
-      alignment:
-          message.isMe ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
-            maxWidth: MediaQuery.sizeOf(context).width * 0.72),
+          maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+        ),
         decoration: BoxDecoration(
           color: message.isMe
               ? Theme.of(context).colorScheme.primary
@@ -134,12 +191,7 @@ class _InputBar extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      padding: EdgeInsets.fromLTRB(
-        12,
-        8,
-        12,
-        8 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: SafeArea(
         top: false,
         child: Row(

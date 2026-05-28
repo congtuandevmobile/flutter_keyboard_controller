@@ -17,12 +17,17 @@ class MyApp extends StatelessWidget {
         title: 'flutter_keyboard_controller',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          colorScheme: ColorScheme.dark(
+            primary: Colors.indigo,
+            secondary: Colors.white,
+            // surface: Colors.grey[900]!,
+          ),
+
+          // colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
           useMaterial3: true,
           inputDecorationTheme: const InputDecorationTheme(
             border: OutlineInputBorder(),
-            contentPadding:
-                EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           ),
         ),
         home: const HomeScreen(),

@@ -45,8 +45,22 @@ class KeyboardAnimation extends ChangeNotifier {
   // ── Internal update ──────────────────────────────────────────────────────
 
   void handleEvent(KeyboardEventData event) {
-    heightNotifier.value = event.height;
-    progressNotifier.value = event.progress;
+    // willShow / willHide carry the *final* target height with progress=0/1 —
+    // NOT the current animated height. Updating height/progress notifiers here
+    // causes widgets to jump to the final position before the animation starts,
+    // then snap back when keyboardMove begins (the "pre-jump then re-animate"
+    // artifact). Only lastEventNotifier and isVisibleNotifier are updated so
+    // consumers can still cache _heightWhenOpened.
+    //
+    // All height/progress values are driven by keyboardMove, didShow, didHide.
+    final isWillEvent = event.type == KeyboardEventType.willShow ||
+        event.type == KeyboardEventType.willHide;
+
+    if (!isWillEvent) {
+      heightNotifier.value = event.height;
+      progressNotifier.value = event.progress;
+    }
+
     isVisibleNotifier.value = event.isVisible;
     lastEventNotifier.value = event;
     notifyListeners();

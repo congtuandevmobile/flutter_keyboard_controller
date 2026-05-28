@@ -1,14 +1,10 @@
 import 'package:flutter/widgets.dart';
 import '../provider/keyboard_animation.dart';
 import '../provider/keyboard_provider.dart';
-import '../models/keyboard_event_data.dart';
 
 /// Controls how [KeyboardChatScrollView] lifts content when the keyboard appears.
-///
-/// Mirrors `keyboardLiftBehavior` from react-native-keyboard-controller.
 enum KeyboardLiftBehavior {
-  /// Content always lifts with keyboard — message list scrolls up.
-  /// Matches Telegram.
+  /// Content always lifts with keyboard. Matches Telegram.
   always,
 
   /// Content lifts only when the user is at the bottom of the list.
@@ -19,22 +15,21 @@ enum KeyboardLiftBehavior {
   /// Matches Claude.ai.
   persistent,
 
-  /// Keyboard never lifts content automatically.
-  /// Matches Perplexity.
+  /// Keyboard never lifts content automatically. Matches Perplexity.
   never,
 }
 
-/// A [ScrollView] optimised for chat/messaging UIs that keeps new messages
-/// visible as the keyboard appears and the user types.
+/// A [ScrollView] optimised for chat/messaging UIs.
 ///
-/// Mirrors `KeyboardChatScrollView` from react-native-keyboard-controller.
+/// **Requires Stack layout** — place inside a [Stack] with a floating input
+/// bar driven by the plugin's keyboard height. The viewport must NOT shrink
+/// when the keyboard opens (i.e. [Scaffold.resizeToAvoidBottomInset] = false).
 ///
-/// ```dart
-/// KeyboardChatScrollView(
-///   liftBehavior: KeyboardLiftBehavior.whenAtEnd,
-///   children: messages.map((m) => MessageBubble(m)).toList(),
-/// )
-/// ```
+/// Lifting is done purely via [ListView.padding] changes (matching
+/// react-native-keyboard-controller's contentInset approach). No manual
+/// `jumpTo` is needed for the basic open/close animation — the padding delta
+/// handles it.  `persistent` is the only mode that keeps extra padding after
+/// the keyboard closes.
 class KeyboardChatScrollView extends StatefulWidget {
   const KeyboardChatScrollView({
     super.key,
@@ -44,6 +39,7 @@ class KeyboardChatScrollView extends StatefulWidget {
     this.physics,
     this.padding,
     this.extraBottomPadding = 0,
+    this.safeAreaBottom = 0,
     this.onEndVisible,
     this.clipBehavior = Clip.hardEdge,
   });
@@ -53,7 +49,17 @@ class KeyboardChatScrollView extends StatefulWidget {
   final ScrollController? controller;
   final ScrollPhysics? physics;
   final EdgeInsetsGeometry? padding;
+
+  /// Fixed space reserved at the bottom (e.g. the floating input bar height,
+  /// excluding any safe-area inset — pass that via [safeAreaBottom]).
   final double extraBottomPadding;
+
+  /// Device safe-area bottom inset (e.g. home-indicator height on iOS).
+  /// Passed separately so the widget can smoothly correct for the fact that
+  /// SafeArea inside the input bar shrinks to 0 as the keyboard opens.
+  /// Typical value: MediaQuery.of(context).viewPadding.bottom.
+  final double safeAreaBottom;
+
   final VoidCallback? onEndVisible;
   final Clip clipBehavior;
 
@@ -65,22 +71,23 @@ class KeyboardChatScrollView extends StatefulWidget {
 class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
   late final ScrollController _controller;
   bool _ownsController = false;
-  double _lastKeyboardHeight = 0;
-  bool _wasAtEnd = true;
-  bool _persistentlyLifted = false;
 
-  // Cached to avoid context lookup in dispose() / listeners.
+  // In reverse:true, pixels=0 means at visual BOTTOM (newest messages).
+  bool _wasAtEnd = true;
+
+  // For persistent mode: remembers the last keyboard height so padding
+  // stays elevated after the keyboard closes.
+  double _persistentPadding = 0;
+
+  // Fallback when no KeyboardProvider is in the tree.
+  static final _zeroNotifier = ValueNotifier(0.0);
   KeyboardAnimation? _animation;
 
   @override
   void initState() {
     super.initState();
-    if (widget.controller != null) {
-      _controller = widget.controller!;
-    } else {
-      _controller = ScrollController();
-      _ownsController = true;
-    }
+    _controller = widget.controller ?? ScrollController();
+    _ownsController = widget.controller == null;
     _controller.addListener(_onScroll);
   }
 
@@ -89,88 +96,59 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
     super.didChangeDependencies();
     final next = KeyboardControllerScope.maybeOf(context);
     if (next != _animation) {
-      _animation?.lastEventNotifier.removeListener(_onKeyboardEvent);
+      _animation?.heightNotifier.removeListener(_onKeyboardHeightChange);
       _animation = next;
-      _animation?.lastEventNotifier.addListener(_onKeyboardEvent);
+      _animation?.heightNotifier.addListener(_onKeyboardHeightChange);
     }
   }
 
   void _onScroll() {
     if (!_controller.hasClients) return;
-    final atEnd = _controller.position.pixels >=
-        _controller.position.maxScrollExtent - 8;
+    // In reverse:true, pixels=0 means at the visual BOTTOM (newest messages).
+    final atEnd = _controller.position.pixels <= 20.0;
     if (atEnd != _wasAtEnd) {
       _wasAtEnd = atEnd;
       if (atEnd) widget.onEndVisible?.call();
     }
   }
 
-  void _onKeyboardEvent() {
-    // Use cached _animation — safe to call from any context.
-    final event = _animation?.lastEvent;
-    if (event == null) return;
+  void _onKeyboardHeightChange() {
+    final newH = _animation?.height ?? 0.0;
 
-    switch (event.type) {
-      case KeyboardEventType.willShow:
-      case KeyboardEventType.didShow:
-        _handleKeyboardShow(event.height);
-      case KeyboardEventType.didHide:
-        _lastKeyboardHeight = 0;
-      case KeyboardEventType.move:
-        _handleKeyboardMove(event.height);
-      default:
-        break;
+    // persistent: record keyboard height unconditionally while open.
+    // RN: shouldShiftContent("persistent") = true always, so the shift is
+    // always applied and must be persisted regardless of scroll position.
+    if (widget.liftBehavior == KeyboardLiftBehavior.persistent && newH > 0) {
+      _persistentPadding = newH;
     }
   }
 
-  void _handleKeyboardShow(double newHeight) {
-    final delta = newHeight - _lastKeyboardHeight;
-    _lastKeyboardHeight = newHeight;
-    if (delta <= 0 || !_controller.hasClients) return;
-
-    if (_shouldLift()) {
-      if (widget.liftBehavior == KeyboardLiftBehavior.persistent) {
-        _persistentlyLifted = true;
-      }
-      final target =
-          (_controller.offset + delta).clamp(0.0, double.infinity);
-      _controller.animateTo(
-        target,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    }
-  }
-
-  void _handleKeyboardMove(double newHeight) {
-    final delta = newHeight - _lastKeyboardHeight;
-    _lastKeyboardHeight = newHeight;
-    if (delta == 0 || !_controller.hasClients) return;
-
-    if (_shouldLift()) {
-      final target =
-          (_controller.offset + delta).clamp(0.0, double.infinity);
-      _controller.jumpTo(target);
-    }
-  }
-
-  bool _shouldLift() {
+  /// Extra lift padding on top of [extraBottomPadding], mirroring RN's
+  /// `padding` (contentInset) value per behavior:
+  ///
+  /// - always    → always equals keyboard height
+  /// - whenAtEnd → equals keyboard height only when at the bottom
+  /// - persistent→ equals keyboard height while open; keeps last value after close
+  /// - never     → always 0
+  double _liftPaddingFor(double keyboardH) {
     switch (widget.liftBehavior) {
       case KeyboardLiftBehavior.always:
-        return true;
+        return keyboardH;
       case KeyboardLiftBehavior.whenAtEnd:
-        return _wasAtEnd;
+        return _wasAtEnd ? keyboardH : 0;
       case KeyboardLiftBehavior.persistent:
-        return _wasAtEnd || _persistentlyLifted;
+        // RN: shouldShiftContent("persistent") = true → always lift while open.
+        // After keyboard closes (keyboardH == 0): keep _persistentPadding so
+        // content stays visually elevated — the "persistent" behaviour.
+        return keyboardH > 0 ? keyboardH : _persistentPadding;
       case KeyboardLiftBehavior.never:
-        return false;
+        return 0;
     }
   }
 
   @override
   void dispose() {
-    // Use the cached reference — never touch context here.
-    _animation?.lastEventNotifier.removeListener(_onKeyboardEvent);
+    _animation?.heightNotifier.removeListener(_onKeyboardHeightChange);
     _controller.removeListener(_onScroll);
     if (_ownsController) _controller.dispose();
     super.dispose();
@@ -178,16 +156,31 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      controller: _controller,
-      reverse: true,
-      physics: widget.physics,
-      clipBehavior: widget.clipBehavior,
-      padding: widget.padding != null
-          ? widget.padding!
-              .add(EdgeInsets.only(bottom: widget.extraBottomPadding))
-          : EdgeInsets.only(bottom: widget.extraBottomPadding),
-      children: widget.children,
+    return ValueListenableBuilder<double>(
+      valueListenable: _animation?.heightNotifier ?? _zeroNotifier,
+      builder: (context, keyboardH, _) {
+        // SafeArea inside the floating InputBar shrinks from safeAreaBottom → 0
+        // as the keyboard opens. Mirror that here so the gap between the newest
+        // message and the InputBar stays constant regardless of keyboard state.
+        final safeAreaNow =
+            (widget.safeAreaBottom - keyboardH).clamp(0.0, widget.safeAreaBottom);
+
+        final basePadding = widget.padding ?? EdgeInsets.zero;
+        return ListView(
+          controller: _controller,
+          reverse: true,
+          physics: widget.physics,
+          clipBehavior: widget.clipBehavior,
+          padding: basePadding.add(
+            EdgeInsets.only(
+              bottom: widget.extraBottomPadding +
+                  safeAreaNow +
+                  _liftPaddingFor(keyboardH),
+            ),
+          ),
+          children: widget.children,
+        );
+      },
     );
   }
 }
