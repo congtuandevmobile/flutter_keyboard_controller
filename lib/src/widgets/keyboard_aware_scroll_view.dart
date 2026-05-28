@@ -65,6 +65,7 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   @override
   void initState() {
     super.initState();
+    // WidgetsBindingObserver only kept as fallback — see didChangeMetrics.
     WidgetsBinding.instance.addObserver(this);
     if (widget.scrollController != null) {
       _scrollController = widget.scrollController!;
@@ -85,22 +86,44 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     }
   }
 
+  // ── Primary path: native keyboard events ─────────────────────────────────
+
   void _onAnimationEvent() {
     final event = _animation?.lastEvent;
     if (event == null) return;
 
-    if (event.type == KeyboardEventType.willShow ||
-        event.type == KeyboardEventType.didShow) {
-      if (event.height != _lastKeyboardHeight) {
-        _lastKeyboardHeight = event.height;
-        _scrollToFocusedInput();
-      }
-    } else if (event.type == KeyboardEventType.didHide) {
-      _lastKeyboardHeight = 0;
+    switch (event.type) {
+      case KeyboardEventType.didShow:
+        // Keyboard fully visible — scroll once to bring field into view.
+        if (event.height != _lastKeyboardHeight) {
+          _lastKeyboardHeight = event.height;
+          _scrollToFocusedInput();
+        }
+
+      case KeyboardEventType.didHide:
+        _lastKeyboardHeight = 0;
+        // After keyboard hides the viewport may have grown and the current
+        // scroll offset might now exceed maxScrollExtent. Fix it so the
+        // user doesn't see an unexpected animated snap-back from the physics.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scrollController.hasClients) return;
+          final pos = _scrollController.position;
+          if (pos.pixels > pos.maxScrollExtent) {
+            _scrollController.animateTo(
+              pos.maxScrollExtent,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+
+      default:
+        break;
     }
   }
 
   Future<void> _scrollToFocusedInput() async {
+    // Yield one frame so layout has settled with the new keyboard height.
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
@@ -110,8 +133,8 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     final renderObj = focused.context?.findRenderObject();
     if (renderObj is! RenderBox) return;
 
-    final inputTopLeft = renderObj.localToGlobal(Offset.zero);
-    final inputBottom = inputTopLeft.dy + renderObj.size.height;
+    final inputBottom =
+        renderObj.localToGlobal(Offset.zero).dy + renderObj.size.height;
 
     final screenHeight = MediaQuery.sizeOf(context).height;
     final visibleBottom = screenHeight - _lastKeyboardHeight;
@@ -130,12 +153,16 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     }
   }
 
+  // ── Fallback: no KeyboardProvider in tree ─────────────────────────────────
+  // Only used when KeyboardProvider is absent. When present, _onAnimationEvent
+  // handles scrolling and didChangeMetrics is a no-op.
+
   @override
   void didChangeMetrics() {
-    // Fallback for when no KeyboardProvider is present.
+    if (_animation != null) return; // native events take priority
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final newHeight = view.viewInsets.bottom / view.devicePixelRatio;
-    if (newHeight != _lastKeyboardHeight && newHeight > 0) {
+    if (newHeight > 0 && newHeight != _lastKeyboardHeight) {
       _lastKeyboardHeight = newHeight;
       _scrollToFocusedInput();
     }
@@ -143,7 +170,6 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
 
   @override
   void dispose() {
-    // Use the cached reference — never touch context here.
     _animation?.lastEventNotifier.removeListener(_onAnimationEvent);
     WidgetsBinding.instance.removeObserver(this);
     if (_ownsController) _scrollController.dispose();
