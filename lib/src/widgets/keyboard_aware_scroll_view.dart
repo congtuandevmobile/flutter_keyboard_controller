@@ -1,7 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/widgets.dart';
 
+import '../provider/keyboard_animation.dart';
 import '../provider/keyboard_provider.dart';
 import '../models/keyboard_event_data.dart';
 
@@ -10,18 +9,11 @@ import '../models/keyboard_event_data.dart';
 ///
 /// Mirrors `KeyboardAwareScrollView` from react-native-keyboard-controller.
 ///
-/// **Key features:**
-/// - Tracks focused input position and keyboard height
-/// - Smooth animated scroll on keyboard show
-/// - Respects `scrollPadding` like Flutter's default `TextField`
-/// - Works with any scroll direction
-///
 /// ```dart
 /// KeyboardAwareScrollView(
 ///   children: [
 ///     TextField(decoration: InputDecoration(labelText: 'Name')),
 ///     TextField(decoration: InputDecoration(labelText: 'Email')),
-///     TextField(decoration: InputDecoration(labelText: 'Message')),
 ///   ],
 /// );
 /// ```
@@ -43,17 +35,13 @@ class KeyboardAwareScrollView extends StatefulWidget {
 
   final List<Widget> children;
   final ScrollController? scrollController;
-
-  /// Padding around the scroll content.
   final EdgeInsetsGeometry? padding;
 
   /// Extra space between the focused input and the keyboard edge.
   final EdgeInsets scrollPadding;
 
-  /// Duration of the scroll animation when the keyboard appears.
   final Duration animationDuration;
   final Curve animationCurve;
-
   final ScrollPhysics? physics;
   final bool reverse;
   final bool? primary;
@@ -69,10 +57,10 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     with WidgetsBindingObserver {
   late final ScrollController _scrollController;
   bool _ownsController = false;
-
-  // The last reported keyboard height.
   double _lastKeyboardHeight = 0;
-  StreamSubscription<dynamic>? _animSub;
+
+  // Cached to avoid context lookup in dispose() / listeners.
+  KeyboardAnimation? _animation;
 
   @override
   void initState() {
@@ -89,22 +77,22 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = KeyboardControllerScope.maybeOf(context);
-    if (animation != null) {
-      animation.lastEventNotifier.addListener(_onAnimationEvent);
+    final next = KeyboardControllerScope.maybeOf(context);
+    if (next != _animation) {
+      _animation?.lastEventNotifier.removeListener(_onAnimationEvent);
+      _animation = next;
+      _animation?.lastEventNotifier.addListener(_onAnimationEvent);
     }
   }
 
   void _onAnimationEvent() {
-    final animation = KeyboardControllerScope.maybeOf(context);
-    final event = animation?.lastEvent;
+    final event = _animation?.lastEvent;
     if (event == null) return;
 
     if (event.type == KeyboardEventType.willShow ||
         event.type == KeyboardEventType.didShow) {
-      final newHeight = event.height;
-      if (newHeight != _lastKeyboardHeight) {
-        _lastKeyboardHeight = newHeight;
+      if (event.height != _lastKeyboardHeight) {
+        _lastKeyboardHeight = event.height;
         _scrollToFocusedInput();
       }
     } else if (event.type == KeyboardEventType.didHide) {
@@ -113,7 +101,6 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   }
 
   Future<void> _scrollToFocusedInput() async {
-    // Give the layout a frame to settle before measuring
     await Future<void>.delayed(Duration.zero);
     if (!mounted) return;
 
@@ -123,21 +110,17 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     final renderObj = focused.context?.findRenderObject();
     if (renderObj is! RenderBox) return;
 
-    // Get the input's absolute position
-    final inputBox = renderObj;
-    final inputTopLeft = inputBox.localToGlobal(Offset.zero);
-    final inputBottom = inputTopLeft.dy + inputBox.size.height;
+    final inputTopLeft = renderObj.localToGlobal(Offset.zero);
+    final inputBottom = inputTopLeft.dy + renderObj.size.height;
 
-    // Viewport height minus the keyboard
     final screenHeight = MediaQuery.sizeOf(context).height;
     final visibleBottom = screenHeight - _lastKeyboardHeight;
 
     if (inputBottom > visibleBottom - widget.scrollPadding.bottom) {
       final scrollAmount =
           inputBottom - visibleBottom + widget.scrollPadding.bottom;
-      final target =
-          (_scrollController.offset + scrollAmount)
-              .clamp(0.0, _scrollController.position.maxScrollExtent);
+      final target = (_scrollController.offset + scrollAmount)
+          .clamp(0.0, _scrollController.position.maxScrollExtent);
 
       _scrollController.animateTo(
         target,
@@ -149,11 +132,9 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
 
   @override
   void didChangeMetrics() {
-    // Fallback: also respond to MediaQuery keyboard height changes
-    final newHeight =
-        WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom /
-            WidgetsBinding.instance.platformDispatcher.views.first.devicePixelRatio;
-
+    // Fallback for when no KeyboardProvider is present.
+    final view = WidgetsBinding.instance.platformDispatcher.views.first;
+    final newHeight = view.viewInsets.bottom / view.devicePixelRatio;
     if (newHeight != _lastKeyboardHeight && newHeight > 0) {
       _lastKeyboardHeight = newHeight;
       _scrollToFocusedInput();
@@ -162,10 +143,9 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
 
   @override
   void dispose() {
+    // Use the cached reference — never touch context here.
+    _animation?.lastEventNotifier.removeListener(_onAnimationEvent);
     WidgetsBinding.instance.removeObserver(this);
-    final animation = KeyboardControllerScope.maybeOf(context);
-    animation?.lastEventNotifier.removeListener(_onAnimationEvent);
-    _animSub?.cancel();
     if (_ownsController) _scrollController.dispose();
     super.dispose();
   }

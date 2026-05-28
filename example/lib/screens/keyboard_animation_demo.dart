@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_keyboard_controller/flutter_keyboard_controller.dart';
 
-/// Displays live keyboard height and progress values as the keyboard animates.
-/// Useful for debugging or building custom animations driven by keyboard state.
 class KeyboardAnimationDemo extends StatelessWidget {
   const KeyboardAnimationDemo({super.key});
 
@@ -10,8 +8,10 @@ class KeyboardAnimationDemo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Keyboard Animation')),
-      resizeToAvoidBottomInset: true,
-      body: Padding(
+      // false → body stays full-height, keyboard overlays from bottom.
+      // We track keyboard height natively so we don't need viewInsets resize.
+      resizeToAvoidBottomInset: false,
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -25,7 +25,8 @@ class KeyboardAnimationDemo extends StatelessWidget {
                   'animates. Use KeyboardControllerScope.of(context) to '
                   'drive custom animations.',
                   style: TextStyle(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer),
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
                 ),
               ),
             ),
@@ -33,8 +34,11 @@ class KeyboardAnimationDemo extends StatelessWidget {
             const _LiveValues(),
             const SizedBox(height: 24),
             const TextField(
-              decoration: InputDecoration(labelText: 'Tap to show keyboard'),
+              decoration: InputDecoration(
+                labelText: 'Tap to show keyboard',
+              ),
             ),
+            const SizedBox(height: 400), // space so field stays visible above keyboard
           ],
         ),
       ),
@@ -53,6 +57,7 @@ class _LiveValues extends StatelessWidget {
     }
 
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _ValueRow(
           label: 'height',
@@ -74,8 +79,8 @@ class _LiveValues extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         ValueListenableBuilder<double>(
-          valueListenable: animation.heightNotifier,
-          builder: (_, height, _) {
+          valueListenable: animation.progressNotifier,
+          builder: (_, progress, _) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -85,10 +90,11 @@ class _LiveValues extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
-                    value: animation.progress,
+                    value: progress,
                     minHeight: 12,
-                    backgroundColor:
-                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                   ),
                 ),
               ],
@@ -131,10 +137,11 @@ class _ValueRow extends StatelessWidget {
             builder: (_, value, _) => Text(
               format(value),
               style: TextStyle(
-                  fontFamily: 'monospace',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: color),
+                fontFamily: 'monospace',
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
             ),
           ),
         ),
@@ -164,9 +171,11 @@ class _BoolRow extends StatelessWidget {
           valueListenable: notifier,
           builder: (_, value, _) => Chip(
             label: Text(value.toString()),
-            backgroundColor: value ? Colors.green.shade100 : Colors.red.shade100,
+            backgroundColor:
+                value ? Colors.green.shade100 : Colors.red.shade100,
             labelStyle: TextStyle(
-              color: value ? Colors.green.shade800 : Colors.red.shade800,
+              color:
+                  value ? Colors.green.shade800 : Colors.red.shade800,
               fontWeight: FontWeight.w600,
             ),
           ),

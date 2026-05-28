@@ -55,6 +55,8 @@ class KeyboardToolbarDemo extends StatelessWidget {
                 alignLabelWithHint: true,
               ),
               maxLines: 3,
+              // Extra scroll padding so Bio scrolls fully above the toolbar.
+              scrollPadding: EdgeInsets.only(bottom: 80),
             ),
             const SizedBox(height: 32),
             SizedBox(
@@ -64,6 +66,8 @@ class KeyboardToolbarDemo extends StatelessWidget {
                 child: const Text('Save Profile'),
               ),
             ),
+            // Bottom padding so Save button is never behind the toolbar.
+            const SizedBox(height: 8),
           ],
         ),
       ),

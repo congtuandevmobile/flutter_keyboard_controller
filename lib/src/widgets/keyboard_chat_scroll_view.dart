@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../provider/keyboard_animation.dart';
 import '../provider/keyboard_provider.dart';
 import '../models/keyboard_event_data.dart';
 
@@ -28,15 +29,10 @@ enum KeyboardLiftBehavior {
 ///
 /// Mirrors `KeyboardChatScrollView` from react-native-keyboard-controller.
 ///
-/// Messages should be listed in **reverse** order with [reverse: true] so
-/// newest messages are at the bottom — this is the standard chat convention.
-///
 /// ```dart
 /// KeyboardChatScrollView(
 ///   liftBehavior: KeyboardLiftBehavior.whenAtEnd,
-///   children: messages.reversed
-///       .map((m) => MessageBubble(message: m))
-///       .toList(),
+///   children: messages.map((m) => MessageBubble(m)).toList(),
 /// )
 /// ```
 class KeyboardChatScrollView extends StatefulWidget {
@@ -53,20 +49,12 @@ class KeyboardChatScrollView extends StatefulWidget {
   });
 
   final List<Widget> children;
-
-  /// How the scroll view reacts when the keyboard appears.
   final KeyboardLiftBehavior liftBehavior;
-
   final ScrollController? controller;
   final ScrollPhysics? physics;
   final EdgeInsetsGeometry? padding;
-
-  /// Extra padding at the bottom of the list (e.g. from a growing input box).
   final double extraBottomPadding;
-
-  /// Fired when the scroll position reaches the very end of the list.
   final VoidCallback? onEndVisible;
-
   final Clip clipBehavior;
 
   @override
@@ -80,6 +68,9 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
   double _lastKeyboardHeight = 0;
   bool _wasAtEnd = true;
   bool _persistentlyLifted = false;
+
+  // Cached to avoid context lookup in dispose() / listeners.
+  KeyboardAnimation? _animation;
 
   @override
   void initState() {
@@ -96,9 +87,12 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    KeyboardControllerScope.maybeOf(context)
-        ?.lastEventNotifier
-        .addListener(_onKeyboardEvent);
+    final next = KeyboardControllerScope.maybeOf(context);
+    if (next != _animation) {
+      _animation?.lastEventNotifier.removeListener(_onKeyboardEvent);
+      _animation = next;
+      _animation?.lastEventNotifier.addListener(_onKeyboardEvent);
+    }
   }
 
   void _onScroll() {
@@ -112,26 +106,18 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
   }
 
   void _onKeyboardEvent() {
-    final animation = KeyboardControllerScope.maybeOf(context);
-    final event = animation?.lastEvent;
+    // Use cached _animation — safe to call from any context.
+    final event = _animation?.lastEvent;
     if (event == null) return;
-
-    final newHeight = event.height;
 
     switch (event.type) {
       case KeyboardEventType.willShow:
       case KeyboardEventType.didShow:
-        _handleKeyboardShow(newHeight);
-        break;
+        _handleKeyboardShow(event.height);
       case KeyboardEventType.didHide:
         _lastKeyboardHeight = 0;
-        if (widget.liftBehavior == KeyboardLiftBehavior.persistent) {
-          // Stay lifted — do not scroll back
-        }
-        break;
       case KeyboardEventType.move:
-        _handleKeyboardMove(newHeight);
-        break;
+        _handleKeyboardMove(event.height);
       default:
         break;
     }
@@ -140,15 +126,14 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
   void _handleKeyboardShow(double newHeight) {
     final delta = newHeight - _lastKeyboardHeight;
     _lastKeyboardHeight = newHeight;
-    if (delta <= 0) return;
+    if (delta <= 0 || !_controller.hasClients) return;
 
-    final shouldLift = _shouldLift();
-    if (shouldLift && _controller.hasClients) {
+    if (_shouldLift()) {
       if (widget.liftBehavior == KeyboardLiftBehavior.persistent) {
         _persistentlyLifted = true;
       }
-      final target = (_controller.offset + delta)
-          .clamp(0.0, double.infinity);
+      final target =
+          (_controller.offset + delta).clamp(0.0, double.infinity);
       _controller.animateTo(
         target,
         duration: const Duration(milliseconds: 250),
@@ -184,26 +169,24 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
 
   @override
   void dispose() {
+    // Use the cached reference — never touch context here.
+    _animation?.lastEventNotifier.removeListener(_onKeyboardEvent);
     _controller.removeListener(_onScroll);
-    KeyboardControllerScope.maybeOf(context)
-        ?.lastEventNotifier
-        .removeListener(_onKeyboardEvent);
     if (_ownsController) _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = widget.extraBottomPadding;
-
     return ListView(
       controller: _controller,
       reverse: true,
       physics: widget.physics,
       clipBehavior: widget.clipBehavior,
       padding: widget.padding != null
-          ? widget.padding!.add(EdgeInsets.only(bottom: bottomPadding))
-          : EdgeInsets.only(bottom: bottomPadding),
+          ? widget.padding!
+              .add(EdgeInsets.only(bottom: widget.extraBottomPadding))
+          : EdgeInsets.only(bottom: widget.extraBottomPadding),
       children: widget.children,
     );
   }

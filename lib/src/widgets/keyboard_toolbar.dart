@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controller/keyboard_controller.dart';
+import '../provider/keyboard_animation.dart';
+import '../provider/keyboard_provider.dart';
 
 /// A toolbar widget rendered above the keyboard that provides Prev / Next /
 /// Done navigation buttons for moving between focusable inputs.
@@ -188,26 +190,33 @@ class KeyboardToolbarScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: appBar,
+      // resizeToAvoidBottomInset: true (default) shrinks the body Column when
+      // keyboard appears. The toolbar then sits between body and keyboard with
+      // no overlap — body's ScrollView sees the correct available height and
+      // Flutter's auto-scroll for TextFields works correctly.
       resizeToAvoidBottomInset: resizeToAvoidBottomInset,
       backgroundColor: backgroundColor,
       floatingActionButton: floatingActionButton,
       bottomNavigationBar: bottomNavigationBar,
-      body: Stack(
+      body: Column(
         children: [
-          body,
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _ToolbarVisibility(toolbar: toolbar),
-          ),
+          // body fills all available space above the toolbar.
+          Expanded(child: body),
+          // Toolbar only appears when keyboard is visible.
+          // It occupies real layout space so the body's ScrollView is never
+          // obscured — Flutter's ensureVisible / auto-scroll works correctly.
+          _ToolbarVisibility(toolbar: toolbar),
         ],
       ),
     );
   }
 }
 
-/// Shows the toolbar only when the keyboard is visible.
+/// Shows the toolbar in sync with the keyboard animation.
+///
+/// Uses [KeyboardAnimation.heightNotifier] so the toolbar appears/disappears
+/// on the exact frame the keyboard height changes — no lag after dismiss.
+/// Falls back to [WidgetsBindingObserver] if no [KeyboardProvider] is present.
 class _ToolbarVisibility extends StatefulWidget {
   const _ToolbarVisibility({required this.toolbar});
   final KeyboardToolbar toolbar;
@@ -218,7 +227,11 @@ class _ToolbarVisibility extends StatefulWidget {
 
 class _ToolbarVisibilityState extends State<_ToolbarVisibility>
     with WidgetsBindingObserver {
-  bool _show = false;
+  // Cached animation from KeyboardProvider (preferred path).
+  KeyboardAnimation? _animation;
+
+  // Fallback when KeyboardProvider is absent.
+  bool _fallbackShow = false;
 
   @override
   void initState() {
@@ -227,26 +240,43 @@ class _ToolbarVisibilityState extends State<_ToolbarVisibility>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = KeyboardControllerScope.maybeOf(context);
+    if (next != _animation) {
+      _animation?.heightNotifier.removeListener(_onHeightChanged);
+      _animation = next;
+      _animation?.heightNotifier.addListener(_onHeightChanged);
+    }
+  }
+
+  void _onHeightChanged() {
+    if (mounted) setState(() {});
+  }
+
+  // Fallback: WidgetsBindingObserver fires after keyboard animation completes.
+  @override
   void didChangeMetrics() {
+    if (_animation != null) return; // prefer native path
     final bottom =
         WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom;
     final show = bottom > 0;
-    if (show != _show) setState(() => _show = show);
+    if (show != _fallbackShow) setState(() => _fallbackShow = show);
   }
 
   @override
   void dispose() {
+    _animation?.heightNotifier.removeListener(_onHeightChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!_show) return const SizedBox.shrink();
-    final keyboardHeight = MediaQuery.viewInsetsOf(context).bottom;
-    return Padding(
-      padding: EdgeInsets.only(bottom: keyboardHeight),
-      child: widget.toolbar,
-    );
+    final visible = _animation != null
+        ? _animation!.height > 0   // frame-accurate via native events
+        : _fallbackShow;            // coarse fallback
+    if (!visible) return const SizedBox.shrink();
+    return widget.toolbar;
   }
 }
