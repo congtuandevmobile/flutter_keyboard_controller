@@ -1,3 +1,7 @@
+## v0.0.4
+
+- Fix: Remove Package.swift on iOS
+
 ## v0.0.3
 
 ### Update README
