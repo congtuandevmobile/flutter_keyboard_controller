@@ -1,3 +1,20 @@
+## v0.0.2
+
+### Update README
+
+- Added full parameter tables for all widgets with defaults
+- Added `KeyboardProvider` dedicated section
+- Added `FocusedInputLayout`, `FocusedInputTextChangedEvent`, `FocusedInputSelectionChangedEvent` documentation
+- Added `KeyboardEventType.interactive` to event reference
+- Added `KeyboardControllerScope` method table
+- Added `AndroidSoftInputMode` behavior explanation
+- Added `KeyboardAwareScrollView` full params + fallback note
+- Added `KeyboardAvoidingView.enabled` param + layout-stability explanation
+- Added `KeyboardChatScrollView.onEndVisible` + `safeAreaBottom` documentation
+- Added `KeyboardAnimation` event listening example
+
+---
+
 ## v0.0.1
 
 ### Initial release
