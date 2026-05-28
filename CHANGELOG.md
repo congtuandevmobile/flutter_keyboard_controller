@@ -1,3 +1,17 @@
+## v1.0.0
+
+### Breaking change
+
+- `KeyboardProvider` now accepts `dismissBehavior` parameter — defaults to `KeyboardDismissBehavior.manual` (no change in existing behavior).
+
+### New feature
+
+- **`KeyboardDismissBehavior`** enum added to `KeyboardProvider`:
+  - `manual` — keyboard never auto-dismissed (default, backward-compatible)
+  - `onTap` — dismiss when user taps anywhere outside a focused input
+  - `onDrag` — dismiss when user starts scrolling
+  - `onTapAndDrag` — dismiss on both tap and scroll
+
 ## v0.0.4
 
 - Fix: Remove Package.swift on iOS

@@ -3,8 +3,23 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../controller/keyboard_controller.dart';
 import '../models/keyboard_event_data.dart';
 import 'keyboard_animation.dart';
+
+enum KeyboardDismissBehavior {
+  /// Keyboard is never dismissed automatically.
+  manual,
+
+  /// Keyboard dismisses when the user taps anywhere outside a focused input.
+  onTap,
+
+  /// Keyboard dismisses when the user starts scrolling inside a [ScrollView].
+  onDrag,
+
+  /// Keyboard dismisses on both tap-outside and scroll.
+  onTapAndDrag,
+}
 
 /// Root widget that initialises keyboard tracking.
 /// Wrap your app (or at least the portion that needs keyboard awareness)
@@ -15,6 +30,7 @@ import 'keyboard_animation.dart';
 /// void main() {
 ///   runApp(
 ///     KeyboardProvider(
+///       dismissBehavior: KeyboardDismissBehavior.onTapAndDrag,
 ///       child: MaterialApp(home: MyHome()),
 ///     ),
 ///   );
@@ -28,10 +44,15 @@ class KeyboardProvider extends StatefulWidget {
     /// Set to false to temporarily disable keyboard tracking without
     /// removing the provider from the tree.
     this.enabled = true,
+
+    /// Controls when the keyboard is automatically dismissed.
+    /// Defaults to [KeyboardDismissBehavior.manual] (never auto-dismissed).
+    this.dismissBehavior = KeyboardDismissBehavior.manual,
   });
 
   final Widget child;
   final bool enabled;
+  final KeyboardDismissBehavior dismissBehavior;
 
   @override
   State<KeyboardProvider> createState() => _KeyboardProviderState();
@@ -92,10 +113,32 @@ class _KeyboardProviderState extends State<KeyboardProvider> {
 
   @override
   Widget build(BuildContext context) {
-    return KeyboardControllerScope(
+    Widget child = KeyboardControllerScope(
       animation: _animation,
       child: widget.child,
     );
+
+    if (widget.dismissBehavior == KeyboardDismissBehavior.onDrag ||
+        widget.dismissBehavior == KeyboardDismissBehavior.onTapAndDrag) {
+      child = NotificationListener<ScrollStartNotification>(
+        onNotification: (n) {
+          if (n.dragDetails != null) KeyboardController.dismiss();
+          return false;
+        },
+        child: child,
+      );
+    }
+
+    if (widget.dismissBehavior == KeyboardDismissBehavior.onTap ||
+        widget.dismissBehavior == KeyboardDismissBehavior.onTapAndDrag) {
+      child = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => KeyboardController.dismiss(),
+        child: child,
+      );
+    }
+
+    return child;
   }
 }
 

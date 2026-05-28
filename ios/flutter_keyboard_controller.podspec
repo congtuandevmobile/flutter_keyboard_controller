@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_keyboard_controller'
-  s.version          = '0.0.4'
+  s.version          = '1.0.0'
   s.summary          = 'Flutter plugin for targeted keyboard animation via ValueNotifier — chat, toolbar, and sticky widgets included.'
   s.description      = <<-DESC
     Exposes keyboard height, progress (0-1), and lifecycle events (willShow/didShow/move)

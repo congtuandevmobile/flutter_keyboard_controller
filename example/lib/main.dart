@@ -13,6 +13,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return KeyboardProvider(
+      dismissBehavior: KeyboardDismissBehavior.onTapAndDrag,
       child: MaterialApp(
         title: 'flutter_keyboard_controller',
         debugShowCheckedModeBanner: false,
