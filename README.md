@@ -2,7 +2,7 @@
 
 A Flutter plugin for **smooth, frame-by-frame keyboard animation tracking** on iOS and Android.
 
-Flutter's built-in `MediaQuery.viewInsetsOf` fires at the **end** of the keyboard animation. This library fires a native event on **every frame**, so your UI can follow the keyboard pixel-perfectly with zero jank.
+Unlike `MediaQuery.viewInsetsOf` — which rebuilds every widget that consumes it — this library pushes keyboard height via `ValueNotifier`, so **only the exact widget that needs it rebuilds**. It also exposes raw keyboard lifecycle events and ships pre-built components for chat UIs, toolbars, and sticky views that Flutter's built-in toolkit doesn't provide.
 
 [![pub.dev](https://img.shields.io/pub/v/flutter_keyboard_controller.svg)](https://pub.dev/packages/flutter_keyboard_controller)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -11,15 +11,19 @@ Flutter's built-in `MediaQuery.viewInsetsOf` fires at the **end** of the keyboar
 
 ## Why this library?
 
-| | Flutter built-in | flutter_keyboard_controller |
+| | `MediaQuery.viewInsetsOf` | flutter_keyboard_controller |
 |---|---|---|
-| Keyboard height updates | Fires at animation end only | Every vsync frame during animation |
-| Smooth animation | ❌ Jumps to final position | ✅ Follows keyboard pixel-by-pixel |
+| Rebuild scope | Every widget that reads it | Only the `ValueListenableBuilder` that subscribes |
+| Keyboard height | ✅ | ✅ |
+| Progress 0 → 1 | ❌ | ✅ |
+| Event types (`willShow`, `didShow` …) | ❌ | ✅ |
+| iOS interactive dismiss tracking | ❌ estimate | ✅ `CADisplayLink` real position |
 | Chat UI component | ❌ | ✅ `KeyboardChatScrollView` |
-| Toolbar above keyboard | ❌ | ✅ `KeyboardToolbar` |
-| Sticky widget | ❌ | ✅ `KeyboardStickyView` |
-| iOS frame interpolation | ❌ | ✅ `CADisplayLink` |
-| Android per-frame events | ❌ | ✅ `WindowInsetsAnimationCompat` |
+| Sticky widget above keyboard | ❌ | ✅ `KeyboardStickyView` |
+| Prev / Next / Done toolbar | ❌ | ✅ `KeyboardToolbar` |
+| `dismiss(keepFocus, animated)` | ❌ | ✅ |
+| Change Android soft-input mode | ❌ | ✅ `setInputMode` |
+| Preload keyboard on iOS | ❌ | ✅ `preload()` |
 
 ---
 
@@ -40,7 +44,7 @@ Flutter's built-in `MediaQuery.viewInsetsOf` fires at the **end** of the keyboar
 
 ```yaml
 dependencies:
-  flutter_keyboard_controller: ^0.0.1
+  flutter_keyboard_controller: ^0.0.2
 ```
 
 ```
@@ -169,8 +173,8 @@ KeyboardToolbarScaffold(
   appBar: AppBar(title: const Text('Profile')),
   toolbar: KeyboardToolbar(
     doneLabel: 'Xong',            // multilang — any String
-    prevLabel: 'Trước',
-    nextLabel: 'Tiếp',
+    prevLabel: 'Before',
+    nextLabel: 'Continue',
     arrowColor: Colors.blue,      // colour for ‹ › arrows
     doneColor: Colors.blue,       // colour for Done label
     onPrev: () => FocusScope.of(context).previousFocus(),

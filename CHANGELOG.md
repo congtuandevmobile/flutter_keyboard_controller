@@ -1,3 +1,13 @@
+## v0.0.3
+
+### Update README
+
+- Rewrote intro — removed inaccurate claim about `MediaQuery.viewInsetsOf`, replaced with accurate description of targeted rebuild advantage
+- Updated comparison table: `MediaQuery.viewInsetsOf` vs library, removed misleading rows, added real differentiators (rebuild scope, progress 0→1, event types, interactive dismiss, `setInputMode`, `preload`)
+- Updated installation version to `^0.0.2`
+
+---
+
 ## v0.0.2
 
 ### Update README
