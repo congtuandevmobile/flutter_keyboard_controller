@@ -1,16 +1,16 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_keyboard_controller'
-  s.version          = '1.0.0'
+  s.version          = '0.0.1'
   s.summary          = 'Flutter plugin for smooth, frame-by-frame keyboard animation tracking.'
   s.description      = <<-DESC
-    Mirrors react-native-keyboard-controller for Flutter.
+    Smooth, frame-by-frame keyboard animation tracking for Flutter.
     Provides KeyboardProvider, KeyboardAvoidingView, KeyboardAwareScrollView,
     KeyboardStickyView, KeyboardToolbar, and KeyboardChatScrollView with
-    native frame-by-frame keyboard animation tracking via CADisplayLink.
+    native per-frame keyboard height updates via CADisplayLink on iOS.
   DESC
-  s.homepage         = 'https://github.com/your-org/flutter_keyboard_controller'
+  s.homepage         = 'https://github.com/congtuandevmobile/flutter_keyboard_controller'
   s.license          = { :file => '../LICENSE' }
-  s.author           = { 'Your Company' => 'email@example.com' }
+  s.author           = { 'Tuan Nguyen Cong' => 'nguyencongtuan.devmobile@gmail.com' }
   s.source           = { :path => '.' }
   s.source_files     = 'Classes/**/*'
   s.dependency         'Flutter'

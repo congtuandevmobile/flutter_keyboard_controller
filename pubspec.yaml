@@ -1,11 +1,11 @@
 name: flutter_keyboard_controller
 description: >-
-  A Flutter plugin for smooth keyboard animation tracking.
-  Mirrors react-native-keyboard-controller with frame-by-frame keyboard
-  height/progress updates, KeyboardAvoidingView, KeyboardAwareScrollView,
-  KeyboardStickyView, KeyboardToolbar, and KeyboardChatScrollView.
-version: 1.0.0
-homepage: https://github.com/your-org/flutter_keyboard_controller
+  Smooth, frame-by-frame keyboard animation tracking for Flutter.
+  Includes KeyboardChatScrollView, KeyboardToolbar, KeyboardStickyView,
+  KeyboardAwareScrollView, and KeyboardAvoidingView — everything you need
+  to build polished keyboard-aware UIs on iOS and Android.
+version: 0.0.1
+homepage: https://github.com/congtuandevmobile/flutter_keyboard_controller
 
 environment:
   sdk: ^3.3.0
