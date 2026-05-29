@@ -37,6 +37,11 @@ class FlutterKeyboardControllerPlugin :
     private var currentHeight = 0.0
     private var isKeyboardVisible = false
 
+    // True while a WindowInsetsAnimation is running. Used to prevent the
+    // static setOnApplyWindowInsetsListener from emitting duplicate events
+    // when the animated callback is already handling the same change.
+    private var isAnimating = false
+
     // ── FlutterPlugin ─────────────────────────────────────────────────────────
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -134,6 +139,34 @@ class FlutterKeyboardControllerPlugin :
 
         WindowCompat.setDecorFitsSystemWindows(act.window, false)
 
+        // ── Static insets safety net ──────────────────────────────────────────
+        // WindowInsetsAnimationCompat.Callback only fires when Android runs an
+        // animation. When switching keyboard types (e.g. text → number) Android
+        // sometimes performs a *static* layout pass with no animation, so
+        // onProgress/onEnd are never called and heightNotifier gets stuck at the
+        // old height. setOnApplyWindowInsetsListener fires on EVERY insets
+        // change (animated or not) and acts as a fallback to push the correct
+        // height when no animation is in progress.
+        ViewCompat.setOnApplyWindowInsetsListener(decorView) { view, insets ->
+            if (!isAnimating) {
+                val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                val density = view.resources.displayMetrics.density
+                val heightDp = imeBottom.toDouble() / density
+
+                if (currentHeight != heightDp) {
+                    currentHeight = heightDp
+                    isKeyboardVisible = imeBottom > 0
+                    emitEvent(
+                        type = if (isKeyboardVisible) "keyboardDidShow" else "keyboardDidHide",
+                        height = heightDp,
+                        progress = if (isKeyboardVisible) 1.0 else 0.0,
+                        duration = 0.0,
+                    )
+                }
+            }
+            ViewCompat.onApplyWindowInsets(view, insets)
+        }
+
         // Allow insets to reach the callback without Flutter blocking them.
         // We use CONTINUE_ON_SUBTREE so Flutter's own inset handling is unaffected.
         val callback = object :
@@ -144,6 +177,7 @@ class FlutterKeyboardControllerPlugin :
             private var endHeight = 0
 
             override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                isAnimating = true
                 startHeight = currentHeight.toInt()
             }
 
@@ -217,6 +251,7 @@ class FlutterKeyboardControllerPlugin :
                 currentHeight = heightDp
                 isKeyboardVisible = actualPx > 0
 
+                isAnimating = false
                 emitEvent(
                     type = if (isKeyboardVisible) "keyboardDidShow" else "keyboardDidHide",
                     height = heightDp,
@@ -231,7 +266,9 @@ class FlutterKeyboardControllerPlugin :
 
     private fun teardownKeyboardTracking() {
         val decorView = activity?.window?.decorView ?: return
+        ViewCompat.setOnApplyWindowInsetsListener(decorView, null)
         ViewCompat.setWindowInsetsAnimationCallback(decorView, null)
+        isAnimating = false
     }
 
     private val reusableEventMap = HashMap<String, Any>()

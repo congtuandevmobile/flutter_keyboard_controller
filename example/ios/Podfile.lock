@@ -1,6 +1,6 @@
 PODS:
   - Flutter (1.0.0)
-  - flutter_keyboard_controller (0.0.4):
+  - flutter_keyboard_controller (1.0.0):
     - Flutter
   - integration_test (0.0.1):
     - Flutter
@@ -20,7 +20,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
-  flutter_keyboard_controller: 382d4e6cbe7e013de582cb363b864d10b3973109
+  flutter_keyboard_controller: 431077065aeda88b0bb123440853cd88c9eaf69b
   integration_test: 4a889634ef21a45d28d50d622cf412dc6d9f586e
 
 PODFILE CHECKSUM: 3c63482e143d1b91d2d2560aee9fb04ecc74ac7e

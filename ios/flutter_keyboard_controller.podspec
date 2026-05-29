@@ -1,13 +1,14 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_keyboard_controller'
-  s.version          = '1.0.0'
+  s.version          = '1.0.1'
   s.summary          = 'Flutter plugin for targeted keyboard animation via ValueNotifier — chat, toolbar, and sticky widgets included.'
   s.description      = <<-DESC
-    Exposes keyboard height, progress (0-1), and lifecycle events (willShow/didShow/move)
-    via ValueNotifier so only subscribed widgets rebuild — not the entire tree.
-    Includes KeyboardChatScrollView, KeyboardToolbar, KeyboardStickyView,
-    KeyboardAwareScrollView, and KeyboardAvoidingView widgets.
-    iOS uses CADisplayLink for accurate interactive-dismiss tracking.
+    Provides frame-by-frame keyboard animation tracking for Flutter. 
+    It exposes keyboard height, transition progress (0.0 - 1.0), and lifecycle events 
+    via ValueNotifiers, ensuring only subscribed leaf widgets rebuild rather than the entire layout tree. 
+    Includes out-of-the-box widgets: KeyboardChatScrollView, KeyboardToolbar,
+    KeyboardStickyView, KeyboardAwareScrollView, and KeyboardAvoidingView. 
+    On iOS, it leverages CADisplayLink for pixel-perfect synchronization and interactive-dismiss tracking.
   DESC
   s.homepage         = 'https://github.com/congtuandevmobile/flutter_keyboard_controller'
   s.license          = { :file => '../LICENSE' }

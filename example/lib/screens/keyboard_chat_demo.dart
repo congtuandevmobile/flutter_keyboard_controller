@@ -35,7 +35,8 @@ class _KeyboardChatDemoState extends State<KeyboardChatDemo> {
   @override
   Widget build(BuildContext context) {
     final safeAreaBottom = MediaQuery.of(context).viewPadding.bottom;
-    // InputBar height: top-padding(8) + row(~40) + bottom-padding(8) + gap(16)
+    // Bar content height (56) + gap (16). safeAreaBottom is handled separately
+    // via safeAreaNow inside _AnimatedInputBar so the gap stays constant.
     const extraBottomPadding = 56.0 + 16.0;
 
     return Scaffold(
@@ -87,7 +88,9 @@ class _KeyboardChatDemoState extends State<KeyboardChatDemo> {
           ),
           _AnimatedInputBar(
             behavior: _behavior,
-            child: _InputBar(controller: _inputController, onSend: _send),
+            safeAreaBottom: safeAreaBottom,
+            controller: _inputController,
+            onSend: _send,
           ),
         ],
       ),
@@ -96,9 +99,16 @@ class _KeyboardChatDemoState extends State<KeyboardChatDemo> {
 }
 
 class _AnimatedInputBar extends StatefulWidget {
-  const _AnimatedInputBar({required this.behavior, required this.child});
+  const _AnimatedInputBar({
+    required this.behavior,
+    required this.safeAreaBottom,
+    required this.controller,
+    required this.onSend,
+  });
   final KeyboardLiftBehavior behavior;
-  final Widget child;
+  final double safeAreaBottom;
+  final TextEditingController controller;
+  final VoidCallback onSend;
 
   @override
   State<_AnimatedInputBar> createState() => _AnimatedInputBarState();
@@ -127,13 +137,25 @@ class _AnimatedInputBarState extends State<_AnimatedInputBar> {
     final animation = KeyboardControllerScope.maybeOf(context);
     return ValueListenableBuilder<double>(
       valueListenable: animation?.heightNotifier ?? _kZero,
-      child: widget.child,
-      builder: (_, keyboardH, child) => Positioned(
-        left: 0,
-        right: 0,
-        bottom: _bottomFor(keyboardH),
-        child: child!,
-      ),
+      builder: (_, keyboardH, __) {
+        // safeAreaNow mirrors the formula in KeyboardChatScrollView so that
+        // bar height and list padding grow/shrink at the same rate — keeping
+        // the gap between the last message and the bar constant at all times.
+        final safeAreaNow = (widget.safeAreaBottom - keyboardH).clamp(
+          0.0,
+          widget.safeAreaBottom,
+        );
+        return Positioned(
+          left: 0,
+          right: 0,
+          bottom: _bottomFor(keyboardH),
+          child: _InputBar(
+            controller: widget.controller,
+            onSend: widget.onSend,
+            bottomPadding: safeAreaNow,
+          ),
+        );
+      },
     );
   }
 }
@@ -180,9 +202,16 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _InputBar extends StatelessWidget {
-  const _InputBar({required this.controller, required this.onSend});
+  const _InputBar({
+    required this.controller,
+    required this.onSend,
+    this.bottomPadding = 0,
+  });
   final TextEditingController controller;
   final VoidCallback onSend;
+  // Explicit bottom padding (mirrors safeAreaNow) instead of SafeArea so the
+  // bar height tracks the formula in KeyboardChatScrollView frame-by-frame.
+  final double bottomPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -191,32 +220,28 @@ class _InputBar extends StatelessWidget {
         color: Theme.of(context).colorScheme.surface,
         border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  hintText: 'Message…',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, 8 + bottomPadding),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Message…',
+                border: OutlineInputBorder(),
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
                 ),
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => onSend(),
               ),
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => onSend(),
             ),
-            const SizedBox(width: 8),
-            IconButton.filled(
-              onPressed: onSend,
-              icon: const Icon(Icons.send),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(onPressed: onSend, icon: const Icon(Icons.send)),
+        ],
       ),
     );
   }

@@ -1,3 +1,62 @@
+## v1.0.1
+
+### Android — Critical fix: keyboard-type switch height tracking
+
+- **Root cause**: `WindowInsetsAnimationCompat.Callback` only fires during animated transitions. On Samsung and other Android devices, switching keyboard type (e.g. text → number) triggers a _static layout pass_ with no animation — `onProgress`/`onEnd` are never called, leaving `heightNotifier` stuck at the old keyboard height. The toolbar and auto-scroll would appear mispositioned after the switch.
+
+- **Fix**: Added `setOnApplyWindowInsetsListener` as a safety-net listener alongside the animation callback. It fires on _every_ inset change regardless of animation, ensuring `heightNotifier` is always up to date. The `isAnimating` flag prevents duplicate events when both listeners fire for the same transition.
+
+### Android — Toolbar positioning: `Positioned` inside `ValueListenableBuilder` inside `Stack`
+
+- **Root cause**: Returning a `Positioned` widget from inside a `ValueListenableBuilder.builder` that is itself a child of `Stack` causes undefined layout on Android — `Positioned` must be a **direct** child of `Stack`'s render tree to receive `StackParentData`.
+
+- **Fix**: Changed to `Positioned.fill(child: VLB(...))` with `Align + Padding(bottom: kbH)` inside the builder — the same pattern used by `KeyboardStickyView`. No more black screen or layout artifacts on Android.
+
+### Android — Toolbar type-switch flicker: `pendingHide` lambda capture
+
+- **Root cause**: The deferred `didHide` suppression used a `Runnable` (captured by value). `cancelPendingHide()` set `pendingHideRunnable = null` but the already-queued `Runnable` still ran and emitted `keyboardDidHide`, causing `heightNotifier` to reset and the toolbar to flicker.
+
+- **Fix**: Changed `pendingHideRunnable: Runnable?` to a Kotlin lambda variable `pendingHide: (() -> Unit)?`. The `decorView.post {}` closure captures `pendingHide` **by reference** — after `cancelPendingHide()` sets it to `null`, `pendingHide?.invoke()` is safely skipped.
+
+### Architecture: `KeyboardGeometryService`
+
+- Extracted Element Tree traversal (`visitAncestorElements`) and scroll-offset math (`RenderBox.localToGlobal`) from `_KeyboardAwareScrollViewState` into `lib/src/services/KeyboardGeometryService`.
+- `KeyboardAwareScrollView` is now a thin UI layer; geometry logic is independently unit-testable without rendering a widget tree.
+
+### `KeyboardAwareScrollView` — replaced `Future.delayed` with `addPostFrameCallback`
+
+- Removed the arbitrary `focusScrollDelay` (previously 120 ms) in favour of `WidgetsBinding.instance.addPostFrameCallback`.
+- `_scrollGeneration` counter still cancels stale callbacks from rapid taps.
+- `_isDismissing` + `ModalRoute.isCurrent` guard still blocks scroll when a bottom sheet opens.
+- Android's new `setOnApplyWindowInsetsListener` sets `_isDismissing` promptly so the single-frame (≈ 16 ms) window is sufficient on all devices.
+
+### API cleanup (non-breaking)
+
+- Removed `focusScrollDelay` parameter from `KeyboardAwareScrollView` — was no longer used after the `addPostFrameCallback` migration. Parameter was never mentioned in guides; removal has no user impact.
+- Removed private dead code `_resolveScrollContextLegacy` from `_KeyboardAwareScrollViewState`.
+
+### `KeyboardToolbar` new features
+
+- `actions: List<KeyboardToolbarAction>` — custom icon buttons with optional selected-state circle highlight.
+- `margin` / `borderRadius` — floating pill style above keyboard.
+- `KeyboardDismissBehavior` in `KeyboardToolbarScaffold` no longer requires `resizeToAvoidBottomInset: true`; uses `KeyboardStickyView` via `Stack + Positioned.fill` when `false`.
+- `toolbarScrollClearance` — auto-injects extra scroll padding into nested `KeyboardAwareScrollView` via `KeyboardToolbarInset` `InheritedWidget`.
+
+### `KeyboardChatScrollView` — fix `whenAtEnd` mode missing rebuild
+
+- `_onScroll` now calls `setState` when `_wasAtEnd` changes so `_liftPaddingFor` re-evaluates correctly while keyboard is already visible.
+
+### README
+
+- Added visual preview table (GIFs).
+- Added `KeyboardGeometryService` and Android two-layer tracking architecture notes.
+- Replaced "2 large vs 18 micro rebuilds" with O(N) vs O(1) notation.
+- Added `KeyboardScrollBoundary` usage in the main `KeyboardAwareScrollView` code example.
+- Added `KeyboardProvider` placement warning (must wrap `MaterialApp`, not `Scaffold`).
+- Added `height` behavior `RenderBox` tight-vs-loose constraint explanation.
+
+---
+
 ## v1.0.0
 
 ### Breaking change
