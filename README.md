@@ -6,13 +6,22 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
-
 ## Preview
 
-|                                      Form auto-scroll                                       |                                   Chat lift                                   | Sticky toolbar |
-|:-------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------:|:---:|
-|                                      ![form-scroll](https://github.com/user-attachments/assets/f4d36d06-0255-4585-ad18-458d9249be56)                                       |                                ![chat-lift](https://github.com/user-attachments/assets/6cb5d3e7-3b3a-448d-b523-f0b3f233b74c)                                 | ![toolbar](https://github.com/user-attachments/assets/6dc5f38d-5b49-4fa3-953f-cdd6bed2c03d) |
-| `KeyboardAwareScrollView` auto-scrolls to the focused field including labels and error text | `KeyboardChatScrollView` lifts the message list with 4 configurable behaviors | `KeyboardToolbar` slides in sync with the keyboard, pixel-perfect |
+### 1. Form auto-scroll
+`KeyboardAwareScrollView` auto-scrolls to the focused field including labels and error text.
+
+[![Watch Video](https://img.shields.io/badge/▶_Click_to_watch_Video-Form_Lift-blue?style=for-the-badge)](https://github.com/user-attachments/assets/6072aaa2-93a2-41d3-9daa-ebaa436af9a9)
+
+### 2. Chat lift
+`KeyboardChatScrollView` lifts the message list with 4 configurable behaviors.
+
+[![Watch Video](https://img.shields.io/badge/▶_Click_to_watch_Video-Chat_Auto_Scroll-blue?style=for-the-badge)](https://github.com/user-attachments/assets/08317101-a5c4-40c2-97e9-0dfbe6017813)
+
+### 3. Sticky toolbar
+`KeyboardToolbar` slides in sync with the keyboard, pixel-perfect.
+
+[![Watch Video](https://img.shields.io/badge/▶_Click_to_watch_Video-Sticky_Toolbar-blue?style=for-the-badge)](https://github.com/user-attachments/assets/1e288547-0a56-4b23-83dc-e5d139cabaec)
 
 ---
 
