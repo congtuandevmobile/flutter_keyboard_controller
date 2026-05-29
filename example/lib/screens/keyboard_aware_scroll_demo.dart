@@ -8,6 +8,11 @@ class KeyboardAwareScrollDemo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('KeyboardAwareScrollView')),
+      // resizeToAvoidBottomInset: false is required.
+      // KeyboardAwareScrollView adds bottom padding equal to keyboard height,
+      // making the content scrollable above the keyboard without Scaffold
+      // resize. If both are true, layout shifts twice.
+      resizeToAvoidBottomInset: false,
       body: KeyboardAwareScrollView(
         padding: const EdgeInsets.all(24),
         children: [
@@ -16,10 +21,12 @@ class KeyboardAwareScrollDemo extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                'Tap any field — the scroll view automatically scrolls so '
-                'the focused input is always above the keyboard.',
+                'Tap any field — the view automatically scrolls to keep the '
+                'focused input above the keyboard, even when switching fields '
+                'while the keyboard is already visible.',
                 style: TextStyle(
-                    color: Theme.of(context).colorScheme.onPrimaryContainer),
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
               ),
             ),
           ),
@@ -27,6 +34,8 @@ class KeyboardAwareScrollDemo extends StatelessWidget {
           for (int i = 1; i <= 10; i++) ...[
             TextField(
               decoration: InputDecoration(labelText: 'Field $i'),
+              textInputAction:
+                  i < 10 ? TextInputAction.next : TextInputAction.done,
             ),
             const SizedBox(height: 16),
           ],

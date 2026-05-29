@@ -107,7 +107,10 @@ class _KeyboardChatScrollViewState extends State<KeyboardChatScrollView> {
     // In reverse:true, pixels=0 means at the visual BOTTOM (newest messages).
     final atEnd = _controller.position.pixels <= 20.0;
     if (atEnd != _wasAtEnd) {
-      _wasAtEnd = atEnd;
+      // setState so _liftPaddingFor re-evaluates with updated _wasAtEnd.
+      // Without this, whenAtEnd mode wouldn't lift content when scrolling
+      // to the bottom while the keyboard is already visible.
+      setState(() => _wasAtEnd = atEnd);
       if (atEnd) widget.onEndVisible?.call();
     }
   }

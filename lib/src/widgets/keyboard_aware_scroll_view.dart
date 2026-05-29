@@ -3,19 +3,52 @@ import 'package:flutter/widgets.dart';
 import '../provider/keyboard_animation.dart';
 import '../provider/keyboard_provider.dart';
 import '../models/keyboard_event_data.dart';
+import '../services/keyboard_geometry_service.dart';
+import 'keyboard_toolbar.dart' show KeyboardToolbarInset;
+
+/// Marks the outermost boundary of a custom input widget so that
+/// [KeyboardAwareScrollView] can measure the full height (including labels
+/// and error messages below the text field) when scrolling to keep the
+/// focused input visible.
+///
+/// Wrap the root widget of your custom input widget with this once:
+///
+/// ```dart
+/// // Inside AppTextInput.build()
+/// return KeyboardScrollBoundary(
+///   child: Column(children: [label, textField, errorText]),
+/// );
+/// ```
+///
+/// [KeyboardAwareScrollView] will automatically find this boundary when
+/// traversing ancestors and use it as the scroll target — no per-screen
+/// configuration required.
+class KeyboardScrollBoundary extends StatelessWidget {
+  const KeyboardScrollBoundary({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
 
 /// A [ScrollView] that automatically scrolls to keep the focused text input
 /// visible when the keyboard appears.
 ///
-/// Mirrors `KeyboardAwareScrollView` from react-native-keyboard-controller.
+/// Works correctly with plain [TextField], reactive_forms, and custom input
+/// wrappers (e.g. AppTextInput that includes a label + error message below
+/// the actual input box).
 ///
 /// ```dart
-/// KeyboardAwareScrollView(
-///   children: [
-///     TextField(decoration: InputDecoration(labelText: 'Name')),
-///     TextField(decoration: InputDecoration(labelText: 'Email')),
-///   ],
-/// );
+/// Scaffold(
+///   resizeToAvoidBottomInset: false,
+///   body: KeyboardAwareScrollView(
+///     children: [
+///       TextField(decoration: InputDecoration(labelText: 'Name')),
+///       TextField(decoration: InputDecoration(labelText: 'Email')),
+///     ],
+///   ),
+/// )
 /// ```
 class KeyboardAwareScrollView extends StatefulWidget {
   const KeyboardAwareScrollView({
@@ -31,6 +64,7 @@ class KeyboardAwareScrollView extends StatefulWidget {
     this.primary,
     this.shrinkWrap = false,
     this.clipBehavior = Clip.hardEdge,
+    this.scrollContextFinder,
   });
 
   final List<Widget> children;
@@ -48,6 +82,30 @@ class KeyboardAwareScrollView extends StatefulWidget {
   final bool shrinkWrap;
   final Clip clipBehavior;
 
+  /// Optional hook to override the default ancestor traversal.
+  ///
+  /// Use when your app has custom input wrappers (AppTextInput, AppPhoneInput…)
+  /// that include labels / error messages outside the focused [TextField].
+  /// Return the [BuildContext] of the outermost wrapper so the scroll target
+  /// includes the full widget height (label + input + error text).
+  /// Return null to fall back to built-in traversal.
+  ///
+  /// Example:
+  /// ```dart
+  /// scrollContextFinder: (focused) {
+  ///   BuildContext? result;
+  ///   focused.context?.visitAncestorElements((el) {
+  ///     if (el.widget.runtimeType.toString().startsWith('AppTextInput')) {
+  ///       result = el;
+  ///       return false;
+  ///     }
+  ///     return true;
+  ///   });
+  ///   return result;
+  /// },
+  /// ```
+  final BuildContext? Function(FocusNode focused)? scrollContextFinder;
+
   @override
   State<KeyboardAwareScrollView> createState() =>
       _KeyboardAwareScrollViewState();
@@ -58,15 +116,25 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   late final ScrollController _scrollController;
   bool _ownsController = false;
   double _lastKeyboardHeight = 0;
+  int _scrollGeneration = 0;
 
-  // Cached to avoid context lookup in dispose() / listeners.
+  // Drives bottom padding per-frame via ValueListenableBuilder.
+  // Only SingleChildScrollView rebuilds each frame — Column/children do not.
+  final ValueNotifier<double> _paddingNotifier = ValueNotifier(0.0);
+
+  // Plain bool — used only to suppress _onFocusChanged scroll during dismiss.
+  // NOT a ValueNotifier: no physics switching needed. Letting platform physics
+  // (BouncingScrollPhysics on iOS) handle the scroll-back gives the same
+  // smooth spring animation as KeyboardAvoidingView.
+  bool _isDismissing = false;
+
   KeyboardAnimation? _animation;
 
   @override
   void initState() {
     super.initState();
-    // WidgetsBindingObserver only kept as fallback — see didChangeMetrics.
     WidgetsBinding.instance.addObserver(this);
+    FocusManager.instance.addListener(_onFocusChanged);
     if (widget.scrollController != null) {
       _scrollController = widget.scrollController!;
     } else {
@@ -75,45 +143,73 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     }
   }
 
+  // Uses addPostFrameCallback (one layout frame ≈ 16ms) instead of an
+  // arbitrary delay. The ModalRoute.isCurrent guard handles bottom-sheet
+  // opens; _scrollGeneration cancels stale callbacks from rapid taps;
+  // _isDismissing blocks scrolls when keyboard is truly being dismissed.
+  //
+  // Note: on Android the static setOnApplyWindowInsetsListener now fires
+  // _isDismissing promptly, so the 16ms window is sufficient.
+  void _onFocusChanged() {
+    if (_lastKeyboardHeight <= 0) return;
+    final generation = ++_scrollGeneration;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _scrollGeneration != generation) return;
+
+      final route = ModalRoute.of(context);
+      if (route != null && !route.isCurrent) return;
+
+      if (!_isDismissing) _scrollToFocusedInput();
+    });
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final next = KeyboardControllerScope.maybeOf(context);
     if (next != _animation) {
       _animation?.lastEventNotifier.removeListener(_onAnimationEvent);
+      _animation?.heightNotifier.removeListener(_onHeightChanged);
       _animation = next;
       _animation?.lastEventNotifier.addListener(_onAnimationEvent);
+      _animation?.heightNotifier.addListener(_onHeightChanged);
     }
   }
 
-  // ── Primary path: native keyboard events ─────────────────────────────────
+  // Always follow keyboard height per-frame — appear AND dismiss.
+  void _onHeightChanged() {
+    _paddingNotifier.value = _animation?.heightNotifier.value ?? 0;
+  }
 
   void _onAnimationEvent() {
     final event = _animation?.lastEvent;
     if (event == null) return;
 
     switch (event.type) {
+      case KeyboardEventType.willHide:
+        _isDismissing = true;
+
+      case KeyboardEventType.willShow:
+        // iOS field switch: willHide → willShow fires immediately.
+        _isDismissing = false;
+
       case KeyboardEventType.didShow:
-        // Keyboard fully visible — scroll once to bring field into view.
-        if (event.height != _lastKeyboardHeight) {
-          _lastKeyboardHeight = event.height;
-          _scrollToFocusedInput();
-        }
+        _isDismissing = false;
+        _lastKeyboardHeight = event.height;
+        _paddingNotifier.value = event.height;
+        _scrollToFocusedInput();
 
       case KeyboardEventType.didHide:
+        _isDismissing = false;
         _lastKeyboardHeight = 0;
-        // After keyboard hides the viewport may have grown and the current
-        // scroll offset might now exceed maxScrollExtent. Fix it so the
-        // user doesn't see an unexpected animated snap-back from the physics.
+        _paddingNotifier.value = 0;
+        // Safety clamp after padding snaps to 0.
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted || !_scrollController.hasClients) return;
           final pos = _scrollController.position;
           if (pos.pixels > pos.maxScrollExtent) {
-            _scrollController.animateTo(
-              pos.maxScrollExtent,
-              duration: const Duration(milliseconds: 200),
-              curve: Curves.easeOut,
-            );
+            _scrollController.jumpTo(pos.maxScrollExtent);
           }
         });
 
@@ -123,30 +219,32 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   }
 
   Future<void> _scrollToFocusedInput() async {
-    // Yield one frame so layout has settled with the new keyboard height.
-    await Future<void>.delayed(Duration.zero);
-    if (!mounted) return;
+    if (!mounted || !_scrollController.hasClients) return;
 
     final focused = FocusManager.instance.primaryFocus;
-    if (focused == null) return;
+    if (focused == null || focused.context == null) return;
 
-    final renderObj = focused.context?.findRenderObject();
-    if (renderObj is! RenderBox) return;
+    // DOM traversal + geometry delegated to KeyboardGeometryService.
+    final targetContext = KeyboardGeometryService.resolveTargetContext(
+      focused: focused,
+      scrollViewContext: context,
+      customFinder: widget.scrollContextFinder,
+    );
+    if (targetContext == null) return;
 
-    final inputBottom =
-        renderObj.localToGlobal(Offset.zero).dy + renderObj.size.height;
+    final targetOffset = KeyboardGeometryService.calculateScrollOffset(
+      controller: _scrollController,
+      scrollViewContext: context,
+      targetContext: targetContext,
+      keyboardHeight: _lastKeyboardHeight,
+      scrollPadding: widget.scrollPadding,
+      toolbarInset: KeyboardToolbarInset.of(context),
+      screenHeight: MediaQuery.sizeOf(context).height,
+    );
 
-    final screenHeight = MediaQuery.sizeOf(context).height;
-    final visibleBottom = screenHeight - _lastKeyboardHeight;
-
-    if (inputBottom > visibleBottom - widget.scrollPadding.bottom) {
-      final scrollAmount =
-          inputBottom - visibleBottom + widget.scrollPadding.bottom;
-      final target = (_scrollController.offset + scrollAmount)
-          .clamp(0.0, _scrollController.position.maxScrollExtent);
-
-      _scrollController.animateTo(
-        target,
+    if (targetOffset != null && targetOffset != _scrollController.offset) {
+      await _scrollController.animateTo(
+        targetOffset,
         duration: widget.animationDuration,
         curve: widget.animationCurve,
       );
@@ -154,23 +252,25 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
   }
 
   // ── Fallback: no KeyboardProvider in tree ─────────────────────────────────
-  // Only used when KeyboardProvider is absent. When present, _onAnimationEvent
-  // handles scrolling and didChangeMetrics is a no-op.
 
   @override
   void didChangeMetrics() {
-    if (_animation != null) return; // native events take priority
+    if (_animation != null) return;
     final view = WidgetsBinding.instance.platformDispatcher.views.first;
     final newHeight = view.viewInsets.bottom / view.devicePixelRatio;
-    if (newHeight > 0 && newHeight != _lastKeyboardHeight) {
+    if (newHeight != _lastKeyboardHeight) {
       _lastKeyboardHeight = newHeight;
-      _scrollToFocusedInput();
+      _paddingNotifier.value = newHeight;
+      if (newHeight > 0) _scrollToFocusedInput();
     }
   }
 
   @override
   void dispose() {
     _animation?.lastEventNotifier.removeListener(_onAnimationEvent);
+    _animation?.heightNotifier.removeListener(_onHeightChanged);
+    _paddingNotifier.dispose();
+    FocusManager.instance.removeListener(_onFocusChanged);
     WidgetsBinding.instance.removeObserver(this);
     if (_ownsController) _scrollController.dispose();
     super.dispose();
@@ -178,13 +278,21 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      controller: _scrollController,
-      padding: widget.padding,
-      physics: widget.physics,
-      reverse: widget.reverse,
-      primary: widget.primary,
-      clipBehavior: widget.clipBehavior,
+    final basePadding = (widget.padding as EdgeInsets?) ?? EdgeInsets.zero;
+
+    return ValueListenableBuilder<double>(
+      valueListenable: _paddingNotifier,
+      builder: (_, kbHeight, child) {
+        return SingleChildScrollView(
+          controller: _scrollController,
+          padding: basePadding.copyWith(bottom: basePadding.bottom + kbHeight),
+          physics: widget.physics,
+          reverse: widget.reverse,
+          primary: widget.primary,
+          clipBehavior: widget.clipBehavior,
+          child: child,
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: widget.children,

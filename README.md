@@ -1,42 +1,105 @@
 # flutter_keyboard_controller
 
-A Flutter plugin for **smooth, frame-by-frame keyboard animation tracking** on iOS and Android.
-
-Unlike `MediaQuery.viewInsetsOf` — which rebuilds every widget that consumes it — this library pushes keyboard height via `ValueNotifier`, so **only the exact widget that needs it rebuilds**. It also exposes raw keyboard lifecycle events and ships pre-built components for chat UIs, toolbars, and sticky views that Flutter's built-in toolkit doesn't provide.
+**Frame-by-frame keyboard tracking for Flutter** — smooth animations, auto-scroll forms, chat UIs, sticky toolbars, and a full imperative API. Built on native `CADisplayLink` (iOS) and `WindowInsetsAnimationCompat` + `OnApplyWindowInsetsListener` (Android).
 
 [![pub.dev](https://img.shields.io/pub/v/flutter_keyboard_controller.svg)](https://pub.dev/packages/flutter_keyboard_controller)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## Why this library?
+## Preview
 
-| | `MediaQuery.viewInsetsOf` | flutter_keyboard_controller |
-|---|---|---|
-| Rebuild scope | Every widget that reads it | Only the `ValueListenableBuilder` that subscribes |
-| Keyboard height | ✅ | ✅ |
-| Progress 0 → 1 | ❌ | ✅ |
-| Event types (`willShow`, `didShow` …) | ❌ | ✅ |
-| iOS interactive dismiss tracking | ❌ estimate | ✅ `CADisplayLink` real position |
-| Chat UI component | ❌ | ✅ `KeyboardChatScrollView` |
-| Sticky widget above keyboard | ❌ | ✅ `KeyboardStickyView` |
-| Prev / Next / Done toolbar | ❌ | ✅ `KeyboardToolbar` |
-| `dismiss(keepFocus, animated)` | ❌ | ✅ |
-| Change Android soft-input mode | ❌ | ✅ `setInputMode` |
-| Preload keyboard on iOS | ❌ | ✅ `preload()` |
+|                                      Form auto-scroll                                       |                                   Chat lift                                   | Sticky toolbar |
+|:-------------------------------------------------------------------------------------------:|:-----------------------------------------------------------------------------:|:---:|
+|                                      ![form-scroll](https://github.com/user-attachments/assets/f4d36d06-0255-4585-ad18-458d9249be56)                                       |                                ![chat-lift](https://github.com/user-attachments/assets/6cb5d3e7-3b3a-448d-b523-f0b3f233b74c)                                 | ![toolbar](https://github.com/user-attachments/assets/6dc5f38d-5b49-4fa3-953f-cdd6bed2c03d) |
+| `KeyboardAwareScrollView` auto-scrolls to the focused field including labels and error text | `KeyboardChatScrollView` lifts the message list with 4 configurable behaviors | `KeyboardToolbar` slides in sync with the keyboard, pixel-perfect |
 
 ---
 
-## Features
+## Why this library?
 
-- 🎞 **Frame-by-frame** keyboard height & progress (0–1) on every vsync
-- 💬 **`KeyboardChatScrollView`** — chat list with `always / whenAtEnd / persistent / never` lift behaviors
-- 📌 **`KeyboardStickyView`** — any widget that sticks to the keyboard top edge
-- 🔧 **`KeyboardToolbar`** — Prev / Next / Done bar with customisable labels and colours
-- 📜 **`KeyboardAwareScrollView`** — auto-scrolls to keep focused `TextField` visible
-- 🛡 **`KeyboardAvoidingView`** — fine-grained avoidance with 4 modes
-- ⚡ **`KeyboardController`** — dismiss, query state, set Android soft-input mode, preload on iOS
-- 🎯 **`ValueNotifier`-based** — only subscribed widgets rebuild, zero overhead elsewhere
+### Flutter's built-in keyboard handling
+
+Flutter ships two mechanisms:
+
+**`Scaffold(resizeToAvoidBottomInset: true)`** (default)
+- Scaffold body shrinks **in one jump** when keyboard animation ends — not per-frame.
+- `TextField.scrollPadding` calls `Scrollable.ensureVisible()` on the raw `TextField` bounds — ignores labels or error text below the field.
+- Android: on some devices (Samsung) a keyboard-type switch causes a *static layout pass* with no animation, so Flutter's scroll simply doesn't fire.
+
+**`MediaQuery.viewInsetsOf(context)`**
+- Returns height only **after** animation ends.
+- Every widget reading it rebuilds — cascades through the entire `InheritedWidget` tree.
+- No progress value (0→1), no lifecycle events, no interactive-dismiss tracking.
+
+### Deep comparison
+
+| | Flutter built-in | flutter_keyboard_controller |
+|---|---|---|
+| Height timing | After animation ends | **Every frame** |
+| Progress 0→1 | ❌ | ✅ `progressNotifier` |
+| Lifecycle events | ❌ | ✅ `willShow / didShow / willHide / didHide / move / interactive` |
+| iOS interactive dismiss | Estimated | ✅ `CADisplayLink` exact position |
+| Android keyboard-type switch | ❌ Missed on Samsung | ✅ `setOnApplyWindowInsetsListener` safety net |
+| Rebuild scope | Entire `MediaQuery` subtree | Single `ValueListenableBuilder` |
+| Auto-scroll to field | ✅ raw `TextField` only | ✅ full widget bounds (label + error) via `KeyboardScrollBoundary` |
+| Auto-scroll when `resizeToAvoidBottomInset: false` | ❌ | ✅ |
+| Global dismiss (tap/drag) | Per-ScrollView only | ✅ `KeyboardProvider.dismissBehavior` |
+| Chat lift behaviors | ❌ | ✅ `KeyboardChatScrollView` |
+| Sticky widget above keyboard | ❌ | ✅ `KeyboardStickyView` |
+| Prev/Next/Done toolbar | ❌ | ✅ `KeyboardToolbar` |
+| `dismiss(keepFocus, animated)` | ❌ | ✅ |
+| Preload keyboard (iOS lag) | ❌ ~300 ms | ✅ `KeyboardController.preload()` |
+| Android soft-input mode | Manifest only | ✅ `setInputMode()` at runtime |
+
+### Performance
+
+```
+Flutter built-in: O(N) — rebuilds the entire MediaQuery subtree (Scaffold → theme → every consumer)
+                         every time the keyboard opens or closes.
+
+This library:     O(1) — only the specific Padding/Transform wrapper updates via ValueListenableBuilder.
+                         Heavy widgets (lists, cards, images) remain completely static.
+```
+
+Always pass stable content as `child:` to `ValueListenableBuilder` so it never rebuilds per-frame:
+
+```dart
+// ✅ child: never rebuilds — only Padding wrapper does (~60×/s during anim)
+ValueListenableBuilder<double>(
+  valueListenable: context.keyboard.heightNotifier,
+  child: const MyList(),
+  builder: (_, height, child) => Padding(
+    padding: EdgeInsets.only(bottom: height),
+    child: child,
+  ),
+);
+```
+
+---
+
+## Which widget should I use?
+
+```
+What are you building?
+│
+├─ Form with many text fields → KeyboardAwareScrollView
+│
+├─ Chat / AI-chat UI         → KeyboardChatScrollView + KeyboardStickyView
+│
+├─ Fixed layout (compose,    → KeyboardAvoidingView  (adjusts whole container)
+│  search bar, login page)     OR KeyboardStickyView (just the input bar)
+│
+└─ Form + Prev/Next/Done     → KeyboardToolbar (pair with KeyboardAwareScrollView)
+```
+
+### `KeyboardAvoidingView` vs `KeyboardStickyView` — most common confusion
+
+| | `KeyboardAvoidingView` | `KeyboardStickyView` |
+|---|---|---|
+| What adjusts | The **entire** layout container | **One** specific widget |
+| Content behind keyboard | ✅ Never hidden | ❌ Keyboard overlaps it |
+| Use case | Compose screen | Chat input bar |
 
 ---
 
@@ -44,33 +107,26 @@ Unlike `MediaQuery.viewInsetsOf` — which rebuilds every widget that consumes i
 
 ```yaml
 dependencies:
-  flutter_keyboard_controller: ^0.0.2
+  flutter_keyboard_controller: ^1.0.0
 ```
 
-```
-flutter pub get
-```
-
-### Android
-
-Minimum SDK **24**. No extra configuration needed.
-
-### iOS
-
-Minimum iOS **13**. No extra steps.
+- **Android**: min SDK 24.
+- **iOS**: min iOS 13.
 
 ---
 
 ## Quick start
-
-Wrap your app once with `KeyboardProvider`. All child widgets then have access to live keyboard data:
 
 ```dart
 import 'package:flutter_keyboard_controller/flutter_keyboard_controller.dart';
 
 void main() {
   runApp(
+    // ⚠️ KeyboardProvider must wrap your entire app (above MaterialApp /
+    // CupertinoApp). Placing it below Scaffold causes keyboard state to reset
+    // on every route push/pop and bottom-sheet open.
     KeyboardProvider(
+      dismissBehavior: KeyboardDismissBehavior.onTapAndDrag,
       child: MaterialApp(home: MyApp()),
     ),
   );
@@ -81,430 +137,374 @@ void main() {
 
 ## KeyboardProvider
 
-`KeyboardProvider` is the **required root widget** that initialises native keyboard tracking and exposes a `KeyboardAnimation` to all descendants via `InheritedNotifier`.
+Root widget. Required for all features.
 
-Place it as high as possible in the tree — typically wrapping `MaterialApp`:
+> **⚠️ Important**: Always place `KeyboardProvider` **above** `MaterialApp` / `CupertinoApp`. If placed below `Scaffold`, keyboard state resets on every route push/pop and breaks overlay handling for dialogs and bottom sheets.
 
 ```dart
 KeyboardProvider(
-  enabled: true,   // set false to pause tracking without removing the widget
-  child: MaterialApp(home: MyApp()),
+  enabled: true,
+  dismissBehavior: KeyboardDismissBehavior.onTapAndDrag,
+  child: MaterialApp(...),  // ✅ correct — wraps the entire app
 )
 ```
 
-### Reading keyboard state in descendants
+| `KeyboardDismissBehavior` | Effect |
+|---|---|
+| `manual` | Never auto-dismiss (default) |
+| `onTap` | Dismiss on tap outside |
+| `onDrag` | Dismiss on scroll |
+| `onTapAndDrag` | Both |
+
+### Reading keyboard state
 
 ```dart
-// Subscribes — widget rebuilds on every keyboard event
-final animation = KeyboardControllerScope.of(context);
-
-// Does NOT subscribe — safe for use inside listeners / callbacks
-final animation = KeyboardControllerScope.maybeOf(context); // nullable
-
-// Extension shorthand
-final animation = context.keyboard;        // subscribes, throws if absent
-final animation = context.keyboardOrNull;  // nullable, does not subscribe
+final animation = context.keyboard;          // subscribes — widget rebuilds
+final animation = context.keyboardOrNull;    // no subscription
 ```
 
 ---
 
-## KeyboardChatScrollView
+## KeyboardAwareScrollView
 
-The centerpiece for chat / AI-chat UIs. Uses a `Stack` with a floating input bar so the viewport never shrinks — lifting is done via `padding.bottom` changes instead:
+**When to use**: Multi-field forms (sign-up, profile, settings).
+
+**How it works**:
+- Adds bottom padding = keyboard height so `maxScrollExtent` grows → content is scrollable above keyboard.
+- `_onFocusChanged` fires on every focus change → `addPostFrameCallback` triggers `_scrollToFocusedInput`.
+- `KeyboardGeometryService` calculates the target scroll offset using the field's `RenderBox` coordinates.
+- `_isDismissing` + `ModalRoute.isCurrent` prevent unwanted scrolls when a bottom sheet opens.
+- Android: `setOnApplyWindowInsetsListener` catches static keyboard-type switches that `WindowInsetsAnimationCompat` misses.
+
+**vs Flutter built-in**:
+- Flutter: body snaps, scrolls to raw `TextField` bounds only, fails on `resizeToAvoidBottomInset: false`.
+- This: smooth per-frame padding, scrolls to full widget height (labels + errors), works independently of Scaffold.
 
 ```dart
 Scaffold(
   resizeToAvoidBottomInset: false,
-  body: Stack(
+  body: KeyboardAwareScrollView(
+    padding: const EdgeInsets.all(16),
     children: [
-      Positioned.fill(
-        child: KeyboardChatScrollView(
-          liftBehavior: KeyboardLiftBehavior.whenAtEnd,
-          extraBottomPadding: 72,   // fixed height of your input bar
-          safeAreaBottom: MediaQuery.of(context).viewPadding.bottom,
-          onEndVisible: () { /* user scrolled to bottom */ },
-          children: messages.map((m) => MessageBubble(m)).toList(),
+      // Plain field — scrolled to raw TextField bounds
+      TextField(decoration: InputDecoration(labelText: 'Email')),
+
+      // Custom widget — KeyboardScrollBoundary tells the scroll view to
+      // include the label AND the red error text below the field.
+      // Without it, only the raw TextField bounds are used and the error
+      // text gets hidden behind the keyboard.
+      KeyboardScrollBoundary(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Password'),
+            const TextField(obscureText: true),
+            const Text(
+              'Must be at least 8 characters',
+              style: TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ],
         ),
       ),
-      // Input bar floats above keyboard, driven by plugin animation
-      ValueListenableBuilder<double>(
-        valueListenable: KeyboardControllerScope.of(context).heightNotifier,
-        child: InputBar(),
-        builder: (_, keyboardH, child) => Positioned(
-          left: 0, right: 0, bottom: keyboardH, child: child!,
-        ),
-      ),
+
+      FilledButton(onPressed: submit, child: const Text('Sign in')),
     ],
   ),
 )
 ```
 
-### Lift behaviors
+### `KeyboardScrollBoundary` — for custom input widgets
 
-| `liftBehavior` | What it does | Matches |
-|---|---|---|
-| `always` | Lifts content on every keyboard open | Telegram |
-| `whenAtEnd` | Lifts only when scrolled to the bottom | ChatGPT, WhatsApp |
-| `persistent` | Lifts on open, stays lifted after close | Claude.ai |
-| `never` | No automatic lift | Perplexity |
+Wrap your custom widget's root **once** so `KeyboardAwareScrollView` measures the full widget height (label + input + error text). No per-screen config needed — every screen using `KeyboardAwareScrollView` benefits automatically.
+
+```dart
+// Inside AppTextInput.build() — wrap once, works everywhere:
+return KeyboardScrollBoundary(
+  child: Column(children: [label, textField, errorText]),
+);
+```
 
 ### Parameters
 
 | Param | Default | Description |
 |---|---|---|
-| `liftBehavior` | `whenAtEnd` | When to lift content |
-| `extraBottomPadding` | `0` | Fixed space for the floating input bar |
-| `safeAreaBottom` | `0` | `MediaQuery.of(context).viewPadding.bottom` — corrects SafeArea shrink inside input bar when keyboard opens |
-| `onEndVisible` | `null` | Called when user scrolls to the newest message (offset ≤ 20 dp in `reverse:true`) |
-| `controller` | auto | Custom `ScrollController` |
-| `padding` | `null` | Extra `EdgeInsetsGeometry` added to the list |
-| `physics` | default | `ScrollPhysics` |
-| `clipBehavior` | `Clip.hardEdge` | Clipping behaviour |
+| `children` | required | Content widgets |
+| `padding` | `null` | Outer padding |
+| `scrollPadding` | `EdgeInsets.all(20)` | Gap between field and keyboard edge |
+| `animationDuration` | `300 ms` | Scroll animation duration |
+| `animationCurve` | `Curves.easeOut` | Scroll animation curve |
+| `physics` | platform | `ScrollPhysics` |
+| `scrollContextFinder` | `null` | Override ancestor traversal |
 
 ---
 
-## KeyboardToolbar
+## KeyboardAvoidingView
 
-Prev / Next / Done navigation bar that appears above the keyboard:
+**When to use**: Fixed layouts where the entire container must adapt to the keyboard — login screen, compose screen, search overlay.
+
+**How it works**:
+- `LayoutBuilder` captures parent height once. `ValueListenableBuilder` on `heightNotifier` applies the behavior per-frame.
+- Always returns the **same wrapper widget type** regardless of keyboard state, so Flutter never unmounts the subtree and `FocusNode`s keep their state.
+
+**vs Flutter built-in**:
+- Flutter's `resizeToAvoidBottomInset: true` snaps the body in one step.
+- `KeyboardAvoidingView` follows the keyboard smoothly every frame.
 
 ```dart
-// Option A — convenience scaffold (recommended for forms)
-KeyboardToolbarScaffold(
-  appBar: AppBar(title: const Text('Profile')),
-  toolbar: KeyboardToolbar(
-    doneLabel: 'Xong',            // multilang — any String
-    prevLabel: 'Before',
-    nextLabel: 'Continue',
-    arrowColor: Colors.blue,      // colour for ‹ › arrows
-    doneColor: Colors.blue,       // colour for Done label
-    onPrev: () => FocusScope.of(context).previousFocus(),
-    onNext: () => FocusScope.of(context).nextFocus(),
-    showArrows: true,             // set false to show Done only
-    content: const Text('2/5'),   // optional centre widget
+Scaffold(
+  resizeToAvoidBottomInset: false,
+  body: KeyboardAvoidingView(
+    behavior: KeyboardAvoidingBehavior.padding,
+    child: Column(children: [
+      Expanded(child: content),
+      inputBar,  // lifts smoothly with keyboard
+    ]),
   ),
-  body: MyForm(),
-)
-
-// Option B — manual placement in a Stack
-KeyboardStickyView(
-  child: KeyboardToolbar(),
 )
 ```
 
-`KeyboardToolbarScaffold` uses `resizeToAvoidBottomInset: true` by default so Flutter's automatic scroll-to-focused-field still works inside the body. The toolbar slides in/out in sync with the keyboard animation — no lag between keyboard and toolbar disappearing.
+### Behaviors
 
-### `KeyboardToolbarScaffold` parameters
-
-| Param | Default | Description |
+| `behavior` | Effect | Constraints |
 |---|---|---|
-| `toolbar` | `KeyboardToolbar()` | The toolbar widget |
-| `body` | required | Main content |
-| `appBar` | `null` | Optional app bar |
-| `resizeToAvoidBottomInset` | `true` | Set `false` only when managing layout manually |
-| `backgroundColor` | theme | Scaffold background |
-| `floatingActionButton` | `null` | FAB |
-| `bottomNavigationBar` | `null` | Bottom nav |
+| `padding` | Adds `paddingBottom` | Works with any parent |
+| `height` | Reduces `maxHeight` | Parent must give **loose** constraints (`Flexible`, not `Expanded`) |
+| `position` | Translates view upward | Content may go behind AppBar |
+| `translateWithPadding` | Half translate + half padding | Middle ground |
+
+> ⚠️ **`height` behavior** requires a parent with **loose** constraints. Use `Flexible` instead of `Expanded`.
+>
+> *Why?* `Expanded` passes **tight** constraints (exact size) to its child. When the Flutter layout engine receives tight constraints it ignores any attempt to shrink the child — `KeyboardAvoidingView` simply can't reduce its height. `Flexible` passes **loose** constraints (maximum size), which allows the view to actually shrink to dodge the keyboard.
+
+---
+
+## KeyboardChatScrollView
+
+**When to use**: Chat, messaging, AI assistant — reversed list with a floating input bar.
+
+**How it works**:
+- `ListView(reverse: true)` with `padding.bottom` adjusted per-frame via `heightNotifier`.
+- No viewport resize — keyboard overlays. Lifting is pure padding change (no `jumpTo` needed).
+- Four lift behaviors match popular apps.
+
+**vs Flutter built-in**: No built-in equivalent. The naive `resizeToAvoidBottomInset: true` approach causes the list to flash/jump on keyboard open.
+
+```dart
+Scaffold(
+  resizeToAvoidBottomInset: false,
+  body: Stack(children: [
+    Positioned.fill(
+      child: KeyboardChatScrollView(
+        liftBehavior: KeyboardLiftBehavior.whenAtEnd,
+        extraBottomPadding: 72,  // floating input bar height
+        safeAreaBottom: MediaQuery.of(context).viewPadding.bottom,
+        children: messages.map((m) => MessageBubble(m)).toList(),
+      ),
+    ),
+    ValueListenableBuilder<double>(
+      valueListenable: context.keyboard.heightNotifier,
+      child: InputBar(),
+      builder: (_, kbH, child) => Positioned(
+        left: 0, right: 0, bottom: kbH, child: child!,
+      ),
+    ),
+  ]),
+)
+```
+
+### Lift behaviors
+
+| `liftBehavior` | When lifts | Inspired by |
+|---|---|---|
+| `always` | Every time keyboard opens | Telegram |
+| `whenAtEnd` | Only when at newest message | WhatsApp, ChatGPT |
+| `persistent` | Opens and stays lifted | Claude.ai |
+| `never` | Never lifts | Perplexity |
 
 ---
 
 ## KeyboardStickyView
 
-Any widget that sticks to the top of the keyboard and moves with it frame-by-frame:
+**When to use**: A single widget (input bar, send button) that must always sit just above the keyboard.
+
+**How it works**:
+- `Align(bottomCenter) + Padding(bottom: kbH + extraOffset)` driven by `heightNotifier`.
+- Follows the keyboard **pixel-perfectly** every frame including iOS interactive swipe-dismiss.
+
+**vs Flutter built-in**: `MediaQuery.viewInsetsOf` only updates after animation — widget teleports. `KeyboardStickyView` slides smoothly.
 
 ```dart
 Stack(
   children: [
-    Positioned.fill(child: content),
+    Positioned.fill(child: chatList),
     KeyboardStickyView(
-      offset: const KeyboardStickyOffset(closed: 0, opened: 0),
+      offset: const KeyboardStickyOffset(closed: 0, opened: 8),
       child: InputBar(),
     ),
   ],
 )
 ```
 
-| `KeyboardStickyOffset` | Description |
-|---|---|
-| `closed` | Extra dp offset when keyboard is hidden (e.g. safe-area bottom or tab-bar height) |
-| `opened` | Extra dp offset when keyboard is visible |
-
 ---
 
-## KeyboardAwareScrollView
+## KeyboardToolbar
 
-Auto-scrolls to keep the focused `TextField` visible when the keyboard opens:
+**When to use**: Forms with multiple fields where Prev/Next/Done navigation improves UX.
 
-```dart
-KeyboardAwareScrollView(
-  padding: const EdgeInsets.all(24),
-  scrollPadding: const EdgeInsets.all(20), // gap between field and keyboard edge
-  animationDuration: const Duration(milliseconds: 300),
-  animationCurve: Curves.easeOut,
-  children: [
-    TextField(decoration: const InputDecoration(labelText: 'First name')),
-    TextField(decoration: const InputDecoration(labelText: 'Last name')),
-    TextField(decoration: const InputDecoration(labelText: 'Email')),
-    const SizedBox(height: 24),
-    FilledButton(onPressed: submit, child: const Text('Save')),
-  ],
-)
-```
+**How it works**:
+- `_ToolbarVisibility` subscribes to `lastEventNotifier` (not `heightNotifier`) so it reacts to lifecycle events, not per-frame height.
+- Slides in/out via `ClipRect + Align(heightFactor)` in sync with keyboard animation.
+- `KeyboardToolbarScaffold` with `resizeToAvoidBottomInset: false` uses a `Stack + Positioned.fill(VLB)` so `Positioned` inside `VLB` issue is avoided.
+- Android: `_isSwitching` flag + `_savedKbH` keeps toolbar at correct height during keyboard-type switches.
 
-### Parameters
-
-| Param | Default | Description |
-|---|---|---|
-| `children` | required | Widgets inside the scroll view |
-| `scrollController` | auto | Custom `ScrollController` |
-| `padding` | `null` | Outer padding of the scroll view |
-| `scrollPadding` | `EdgeInsets.all(20)` | Extra gap between the focused field and keyboard edge |
-| `animationDuration` | `Duration(ms: 300)` | Duration of the scroll animation |
-| `animationCurve` | `Curves.easeOut` | Curve of the scroll animation |
-| `physics` | default | `ScrollPhysics` |
-| `reverse` | `false` | Reverse scroll direction |
-| `shrinkWrap` | `false` | Shrink-wrap content |
-
-> **Fallback:** If no `KeyboardProvider` is in the tree, `KeyboardAwareScrollView` falls back to `WidgetsBindingObserver.didChangeMetrics` — it still auto-scrolls, just without frame-accurate timing.
-
----
-
-## KeyboardAvoidingView
-
-Fine-grained control over how a widget adjusts its layout when the keyboard appears:
+**vs Flutter built-in**: No built-in toolbar. Workarounds using `MediaQuery` cause the toolbar to teleport (appear/disappear in one frame) instead of sliding.
 
 ```dart
-Scaffold(
-  resizeToAvoidBottomInset: false,  // required — let KeyboardAvoidingView handle it
-  body: KeyboardAvoidingView(
-    behavior: KeyboardAvoidingBehavior.padding,
-    keyboardVerticalOffset: 0,
-    enabled: true,
-    child: Column(
-      children: [
-        Expanded(child: MessageList()),
-        InputBar(),
-      ],
-    ),
+KeyboardToolbarScaffold(
+  resizeToAvoidBottomInset: false,
+  toolbar: KeyboardToolbar(
+    margin: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+    borderRadius: BorderRadius.circular(100),  // pill
+    doneLabel: 'Xong',
+    arrowColor: Colors.blue,
+    doneColor: Colors.blue,
+    onPrev: () => FocusScope.of(context).previousFocus(),
+    onNext: () => FocusScope.of(context).nextFocus(),
+    actions: [
+      KeyboardToolbarAction(icon: Icons.tag, onPressed: insertTag),
+      KeyboardToolbarAction(
+        icon: Icons.photo_camera_outlined,
+        onPressed: openCamera,
+        isSelected: _cameraMode,
+        selectedColor: Colors.blue,
+      ),
+    ],
   ),
+  body: KeyboardAwareScrollView(children: [...]),
 )
 ```
 
-### Parameters
+### `KeyboardToolbar` parameters
 
 | Param | Default | Description |
 |---|---|---|
-| `behavior` | `padding` | Avoidance mode (see table below) |
-| `keyboardVerticalOffset` | `0.0` | Extra dp added on top of keyboard height |
-| `enabled` | `true` | Set `false` to temporarily disable without removing the widget |
-
-### Behaviors
-
-| `behavior` | Effect |
-|---|---|
-| `padding` | Adds `paddingBottom` equal to keyboard height |
-| `height` | Reduces the widget's `maxHeight` |
-| `position` | Translates the widget upward |
-| `translateWithPadding` | Half translate + half padding (for bottom sheets) |
-
-> **Layout stability:** `KeyboardAvoidingView` always wraps the child in the same widget type regardless of keyboard state (`Padding` / `SizedBox` / `Transform`). This prevents Flutter from unmounting the subtree, so `TextField`s never lose their `FocusNode`.
+| `doneLabel` | `'Done'` | Dismiss button text (multilang) |
+| `arrowColor` | primary | Prev/Next arrow color |
+| `doneColor` | primary | Done button color |
+| `showArrows` | `true` | Show Prev/Next arrows |
+| `actions` | `[]` | Custom icon buttons (≤ 5) |
+| `margin` | `null` | Outer margin for floating pill effect |
+| `borderRadius` | `null` | Corner radius for pill shape |
+| `toolbarScrollClearance` | `64` | Extra scroll padding so fields clear the toolbar |
 
 ---
 
 ## KeyboardAnimation — raw values
 
-Access live keyboard height and progress from any widget:
-
 ```dart
-final animation = KeyboardControllerScope.of(context);
+final animation = context.keyboard;
 
-// ValueListenableBuilder — only this widget rebuilds per frame
+// Only this widget rebuilds per frame
 ValueListenableBuilder<double>(
   valueListenable: animation.heightNotifier,
   child: const MyFAB(),
-  builder: (context, height, child) {
-    return Positioned(bottom: 16 + height, right: 16, child: child!);
-  },
+  builder: (_, height, fab) => Positioned(
+    right: 16, bottom: 16 + height, child: fab!,
+  ),
 );
 ```
-
-### Available notifiers
 
 | Notifier | Type | Description |
 |---|---|---|
 | `heightNotifier` | `ValueNotifier<double>` | Keyboard height in dp (0 when hidden) |
-| `progressNotifier` | `ValueNotifier<double>` | Animation progress 0.0 → 1.0 |
-| `isVisibleNotifier` | `ValueNotifier<bool>` | Whether keyboard is currently visible |
-| `lastEventNotifier` | `ValueNotifier<KeyboardEventData?>` | Last raw event from native layer |
+| `progressNotifier` | `ValueNotifier<double>` | Progress 0→1 |
+| `isVisibleNotifier` | `ValueNotifier<bool>` | Whether keyboard is visible |
+| `lastEventNotifier` | `ValueNotifier<KeyboardEventData?>` | Last native event |
 
-Convenience getters: `animation.height` · `animation.progress` · `animation.isVisible` · `animation.lastEvent`
-
-### Listening to keyboard events
+### Lifecycle events
 
 ```dart
-final animation = KeyboardControllerScope.of(context);
-
 animation.lastEventNotifier.addListener(() {
-  final event = animation.lastEvent;
-  if (event == null) return;
-
-  switch (event.type) {
-    case KeyboardEventType.willShow:
-      print('Keyboard about to show, final height: ${event.height}');
-    case KeyboardEventType.didShow:
-      print('Keyboard fully visible');
-    case KeyboardEventType.willHide:
-      print('Keyboard about to hide');
-    case KeyboardEventType.didHide:
-      print('Keyboard hidden');
-    case KeyboardEventType.move:
-      print('Animating: ${event.height} dp, progress: ${event.progress}');
-    case KeyboardEventType.interactive:
-      print('User gesture dismiss: ${event.height} dp');
+  switch (animation.lastEvent?.type) {
+    case KeyboardEventType.willShow: // about to appear
+    case KeyboardEventType.didShow:  // fully visible
+    case KeyboardEventType.willHide: // about to hide
+    case KeyboardEventType.didHide:  // fully hidden
+    case KeyboardEventType.move:     // per-frame during animation
+    case KeyboardEventType.interactive: // iOS swipe-dismiss
   }
 });
 ```
-
-### `KeyboardEventData` fields
-
-| Field | Type | Description |
-|---|---|---|
-| `type` | `KeyboardEventType` | Event category |
-| `height` | `double` | Current keyboard height in dp |
-| `progress` | `double` | 0.0 (hidden) → 1.0 (fully visible) |
-| `duration` | `double` | Native animation duration in ms |
-| `timestamp` | `double` | Unix ms when the event was fired |
-| `isVisible` | `bool` | `height > 0` |
 
 ---
 
 ## KeyboardController — imperative API
 
 ```dart
-// Dismiss keyboard
-KeyboardController.dismiss();
-KeyboardController.dismiss(keepFocus: true);   // cursor stays, keyboard hides
-KeyboardController.dismiss(animated: false);   // iOS: instant dismiss
+await KeyboardController.dismiss();
+await KeyboardController.dismiss(keepFocus: true);   // hide keys, cursor stays
+await KeyboardController.dismiss(animated: false);   // iOS: instant
 
-// Query state
 final visible = await KeyboardController.isVisible();
-final state   = await KeyboardController.state();
-print(state.height);     // double — current height in dp
-print(state.isVisible);  // bool
-print(state.progress);   // double
+final state   = await KeyboardController.state();    // height, isVisible
 
-// Android: change soft-input mode
+KeyboardController.preload();                        // iOS: eliminate cold-start lag
+
+// Android only
 KeyboardController.setInputMode(AndroidSoftInputMode.adjustNothing);
-KeyboardController.setDefaultMode();   // restore to adjustResize
-
-// iOS: preload keyboard to avoid first-show lag
-KeyboardController.preload();
-```
-
-### `AndroidSoftInputMode` values
-
-| Value | Effect |
-|---|---|
-| `adjustResize` | Scaffold body shrinks (Flutter default) |
-| `adjustPan` | Window pans upward, body does not shrink |
-| `adjustNothing` | Keyboard overlaps content, nothing moves |
-| `adjustUnspecified` | System decides |
-
----
-
-## FocusedInputLayout
-
-Data models for retrieving information about the currently focused text input:
-
-```dart
-// FocusedInputLayout — position of the focused field on screen
-FocusedInputLayout layout = FocusedInputLayout(
-  absoluteRect: Rect.fromLTWH(x, y, width, height),
-  isFocused: true,
-);
-print(layout.absoluteRect);  // Rect in global screen coordinates
-print(layout.isFocused);     // bool
-
-// FocusedInputLayout.empty() — default when nothing is focused
-final empty = FocusedInputLayout.empty();
-
-// FocusedInputTextChangedEvent — text change event
-FocusedInputTextChangedEvent(text: 'Hello');
-
-// FocusedInputSelectionChangedEvent — cursor / selection change
-final sel = FocusedInputSelectionChangedEvent(start: 0, end: 5);
-print(sel.isCollapsed);  // true when start == end (cursor, not selection)
+KeyboardController.setDefaultMode();
 ```
 
 ---
 
-## Migration from MediaQuery
+## Architecture notes
 
-**Before** — fires once at end of animation, content jumps:
-```dart
-final height = MediaQuery.viewInsetsOf(context).bottom;
-```
+### Android — two-layer keyboard tracking
 
-**After** — fires every frame, content follows keyboard smoothly:
-```dart
-final animation = KeyboardControllerScope.of(context);
+This library uses **two complementary mechanisms** on Android:
 
-ValueListenableBuilder<double>(
-  valueListenable: animation.heightNotifier,
-  builder: (_, height, child) {
-    return Padding(padding: EdgeInsets.only(bottom: height), child: child);
-  },
-  child: myContent,
-);
-```
+1. **`WindowInsetsAnimationCompat.Callback`** — tracks per-frame height during animated keyboard transitions. Fires `willShow/move/didShow/willHide/didHide` events.
 
----
+2. **`setOnApplyWindowInsetsListener`** (safety net) — catches *static* keyboard-type switches (e.g. text → number keyboard) where Android performs a layout pass with no animation. Without this, `heightNotifier` would stay at the old value and the toolbar/scroll would appear mispositioned.
 
-## Performance tips
+The `isAnimating` flag prevents duplicate events when both fire for the same transition.
 
-- Use `animation.heightNotifier` in a `ValueListenableBuilder` and pass your widget as `child` — only the `Positioned`/`Padding` wrapper rebuilds per frame, not the child widget itself.
-- Use `KeyboardControllerScope.maybeOf(context)` when the provider might be absent — returns null gracefully, never throws.
-- `KeyboardChatScrollView` only rebuilds its internal `ListView` padding per frame — message bubble children are never touched.
-- Avoid reading `KeyboardControllerScope.of(context)` at the root of a heavy widget — subscribe only at the leaf that actually needs the value.
+### `KeyboardGeometryService`
+
+DOM traversal and scroll-offset math are extracted into `KeyboardGeometryService` (under `lib/src/services/`). This means:
+- `KeyboardAwareScrollView` is a thin UI layer — only renders and triggers events.
+- Geometry logic is independently unit-testable without rendering.
+
+### `KeyboardScrollBoundary`
+
+A zero-overhead marker widget (`build` returns `child` unchanged). `KeyboardGeometryService.resolveTargetContext` walks ancestors looking for it. Wrap your custom input's root widget **once** — no per-screen config.
 
 ---
 
-## API Reference
+## API summary
 
 ### Widgets
 
-| Widget | Key props | Defaults |
-|---|---|---|
-| `KeyboardProvider` | `child`, `enabled` | `enabled: true` |
-| `KeyboardAvoidingView` | `child`, `behavior`, `keyboardVerticalOffset`, `enabled` | `behavior: padding`, `offset: 0`, `enabled: true` |
-| `KeyboardAwareScrollView` | `children`, `padding`, `scrollPadding`, `animationDuration`, `animationCurve`, `physics`, `scrollController` | `scrollPadding: 20`, `duration: 300ms`, `curve: easeOut` |
-| `KeyboardStickyView` | `child`, `offset: KeyboardStickyOffset(closed, opened)` | `closed: 0`, `opened: 0` |
-| `KeyboardToolbar` | `doneLabel`, `prevLabel`, `nextLabel`, `arrowColor`, `doneColor`, `onPrev`, `onNext`, `onDone`, `content`, `showArrows`, `backgroundColor`, `borderColor` | `showArrows: true` |
-| `KeyboardToolbarScaffold` | `toolbar`, `body`, `appBar`, `resizeToAvoidBottomInset`, `backgroundColor` | `resizeToAvoidBottomInset: true` |
-| `KeyboardChatScrollView` | `children`, `liftBehavior`, `extraBottomPadding`, `safeAreaBottom`, `onEndVisible`, `controller`, `padding`, `physics` | `liftBehavior: whenAtEnd`, `extraBottomPadding: 0`, `safeAreaBottom: 0` |
-
-### Models & Enums
-
-| Type | Values / Fields |
+| Widget | Purpose |
 |---|---|
-| `KeyboardAnimation` | `heightNotifier`, `progressNotifier`, `isVisibleNotifier`, `lastEventNotifier` |
-| `KeyboardEventData` | `height`, `progress`, `duration`, `timestamp`, `isVisible`, `type` |
-| `KeyboardEventType` | `willShow`, `didShow`, `willHide`, `didHide`, `move`, `interactive` |
-| `KeyboardState` | `height`, `isVisible`, `progress` · `KeyboardState.hidden()` |
-| `KeyboardLiftBehavior` | `always`, `whenAtEnd`, `persistent`, `never` |
+| `KeyboardProvider` | Root — required. Enables all features. |
+| `KeyboardScrollBoundary` | Marks full bounds of a custom input (label + input + error) |
+| `KeyboardAwareScrollView` | Form scroll — auto-scrolls focused field above keyboard |
+| `KeyboardAvoidingView` | Adjusts entire container with 4 behaviors |
+| `KeyboardChatScrollView` | Chat list with 4 lift behaviors |
+| `KeyboardStickyView` | Sticks one widget to keyboard top edge |
+| `KeyboardToolbar` | Prev/Next/Done toolbar above keyboard |
+| `KeyboardToolbarScaffold` | Convenience scaffold wiring `KeyboardToolbar` |
+
+### Enums
+
+| Enum | Values |
+|---|---|
+| `KeyboardDismissBehavior` | `manual`, `onTap`, `onDrag`, `onTapAndDrag` |
 | `KeyboardAvoidingBehavior` | `padding`, `height`, `position`, `translateWithPadding` |
+| `KeyboardLiftBehavior` | `always`, `whenAtEnd`, `persistent`, `never` |
+| `KeyboardEventType` | `willShow`, `didShow`, `willHide`, `didHide`, `move`, `interactive` |
 | `AndroidSoftInputMode` | `adjustResize`, `adjustPan`, `adjustNothing`, `adjustUnspecified` |
-| `FocusedInputLayout` | `absoluteRect: Rect`, `isFocused: bool` · `.empty()` |
-| `FocusedInputTextChangedEvent` | `text: String` |
-| `FocusedInputSelectionChangedEvent` | `start: int`, `end: int`, `isCollapsed: bool` |
-
-### KeyboardControllerScope
-
-| Method | Returns | Description |
-|---|---|---|
-| `KeyboardControllerScope.of(context)` | `KeyboardAnimation` | Subscribes — widget rebuilds on every event |
-| `KeyboardControllerScope.maybeOf(context)` | `KeyboardAnimation?` | Does NOT subscribe — returns null if no provider |
-| `context.keyboard` | `KeyboardAnimation` | Shorthand for `.of()` |
-| `context.keyboardOrNull` | `KeyboardAnimation?` | Shorthand for `.maybeOf()` |
 
 ---
 
@@ -514,4 +514,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-MIT © 2025 Tuan Nguyen Cong
+MIT © 2026 Tuan Nguyen Cong

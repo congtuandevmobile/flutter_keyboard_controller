@@ -27,7 +27,8 @@ export 'src/provider/keyboard_provider.dart';
 
 // Widgets
 export 'src/widgets/keyboard_avoiding_view.dart';
-export 'src/widgets/keyboard_aware_scroll_view.dart';
+export 'src/widgets/keyboard_aware_scroll_view.dart'
+    show KeyboardAwareScrollView, KeyboardScrollBoundary;
 export 'src/widgets/keyboard_sticky_view.dart';
 export 'src/widgets/keyboard_toolbar.dart';
 export 'src/widgets/keyboard_chat_scroll_view.dart';
