@@ -101,7 +101,7 @@ class _KeyboardAwareFormDemoState extends State<KeyboardAwareFormDemo> {
               label: 'Email *',
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
-              action: TextInputAction.next,
+              action: TextInputAction.done,
               error: _submitted && _emailController.text.isEmpty
                   ? 'Email is required'
                   : null,
@@ -110,7 +110,7 @@ class _KeyboardAwareFormDemoState extends State<KeyboardAwareFormDemo> {
             _FormField(
               label: 'Full name *',
               controller: _nameController,
-              action: TextInputAction.next,
+              action: TextInputAction.done,
               error: _submitted && _nameController.text.isEmpty
                   ? 'Name is required'
                   : null,
@@ -181,7 +181,7 @@ class _KeyboardAwareFormDemoState extends State<KeyboardAwareFormDemo> {
             _FormField(
               label: 'City',
               controller: _cityController,
-              action: TextInputAction.next,
+              action: TextInputAction.done,
             ),
             const SizedBox(height: 12),
             _FormField(
@@ -197,7 +197,6 @@ class _KeyboardAwareFormDemoState extends State<KeyboardAwareFormDemo> {
             _FormField(
               label: 'Phone',
               controller: _phoneController,
-              keyboardType: TextInputType.phone,
               action: TextInputAction.done,
             ),
           ]),

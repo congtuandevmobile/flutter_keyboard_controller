@@ -171,54 +171,75 @@ class KeyboardToolbar extends StatelessWidget {
     final hasBorder = !hasRounded && borderColor != Colors.transparent;
 
     // ── Row content ───────────────────────────────────────────────────────────
-    final row = SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        child: Row(
-          children: [
-            if (showArrows) ...[
-              _ArrowButton(
-                icon: Icons.keyboard_arrow_up,
-                color: resolvedArrowColor,
-                tooltip: prevLabel,
-                onTap: () => onPrev != null ? onPrev!() : _defaultPrev(context),
-              ),
-              _ArrowButton(
-                icon: Icons.keyboard_arrow_down,
-                color: resolvedArrowColor,
-                tooltip: nextLabel,
-                onTap: () => onNext != null ? onNext!() : _defaultNext(context),
-              ),
-              const SizedBox(width: 4),
-            ],
-            for (final action in actions)
-              _ActionButton(
-                action: action,
-                fallbackColor: resolvedArrowColor,
-                theme: theme,
-              ),
-            if (content != null) ...[
-              const SizedBox(width: 4),
-              Expanded(child: content!),
-            ] else
-              const Spacer(),
-            _ToolbarTextButton(
-              label: doneLabel,
-              color: resolvedDoneColor,
-              style: (textStyle ??
-                      theme.textTheme.bodyMedium
-                          ?.copyWith(color: resolvedDoneColor))
-                  ?.copyWith(
-                color: resolvedDoneColor,
-                fontWeight: FontWeight.w600,
-              ),
-              onTap: onDone ?? _defaultDone,
+    final rowContent = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Row(
+        children: [
+          if (showArrows) ...[
+            _ArrowButton(
+              icon: Icons.keyboard_arrow_up,
+              color: resolvedArrowColor,
+              tooltip: prevLabel,
+              onTap: () => onPrev != null ? onPrev!() : _defaultPrev(context),
             ),
+            _ArrowButton(
+              icon: Icons.keyboard_arrow_down,
+              color: resolvedArrowColor,
+              tooltip: nextLabel,
+              onTap: () => onNext != null ? onNext!() : _defaultNext(context),
+            ),
+            const SizedBox(width: 4),
           ],
-        ),
+          for (final action in actions)
+            _ActionButton(
+              action: action,
+              fallbackColor: resolvedArrowColor,
+              theme: theme,
+            ),
+          if (content != null) ...[
+            const SizedBox(width: 4),
+            Expanded(child: content!),
+          ] else
+            const Spacer(),
+          _ToolbarTextButton(
+            label: doneLabel,
+            color: resolvedDoneColor,
+            style: (textStyle ??
+                    theme.textTheme.bodyMedium
+                        ?.copyWith(color: resolvedDoneColor))
+                ?.copyWith(
+              color: resolvedDoneColor,
+              fontWeight: FontWeight.w600,
+            ),
+            onTap: onDone ?? _defaultDone,
+          ),
+        ],
       ),
     );
+
+    // Replace SafeArea with a deterministic bottom-padding calculation driven
+    // by the plugin's heightNotifier. SafeArea reacts to MediaQuery.viewInsets
+    // which Flutter resets to 0 during field switches, causing a 34px jitter
+    // (home indicator height added/removed in one frame).
+    // viewPaddingOf is the physical device constant — never affected by keyboard.
+    final animation = KeyboardControllerScope.maybeOf(context);
+    final Widget row;
+    if (animation != null) {
+      final safeBottom = MediaQuery.viewPaddingOf(context).bottom;
+      row = ValueListenableBuilder<double>(
+        valueListenable: animation.heightNotifier,
+        builder: (context, kbHeight, child) {
+          final extraBottom = (safeBottom - kbHeight).clamp(0.0, safeBottom);
+          return Padding(
+            padding: EdgeInsets.only(bottom: extraBottom),
+            child: child,
+          );
+        },
+        child: rowContent,
+      );
+    } else {
+      row = SafeArea(top: false, child: rowContent);
+    }
 
     // ── Assemble with optional glass effect ───────────────────────────────────
     Widget toolbar;

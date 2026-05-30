@@ -1,3 +1,57 @@
+## v1.0.2
+
+### Android — Critical fix: `onStart` always fired `willShow` regardless of direction
+
+- **Root cause**: `bounds.upperBound.bottom` in `WindowInsetsAnimationCompat.Callback.onStart` is the _maximum amplitude_ of the animation — it always equals the keyboard height regardless of whether the keyboard is opening or closing. The original `endHeight = bounds.upperBound.bottom; isShowing = endHeight > 0` evaluated to `true` unconditionally. As a result `keyboardWillShow` was emitted even during dismiss, so `_isDismissing` was never set to `true` in `KeyboardAwareScrollView` and the overscroll-clamp was always bypassed when pressing Done.
+
+- **Fix**: Read the target inset via `ViewCompat.getRootWindowInsets(decorView)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom` in `onStart`. Android completes a layout pass to the _target state_ before `onStart` fires, so this value is always accurate — `0` for closing, `> 0` for opening or type-switch.
+
+  | Action | `targetImeBottom` | Event emitted |
+  |---|---|---|
+  | Keyboard opens | `> 0` | `keyboardWillShow` ✓ |
+  | Keyboard closes (Done) | `0` | `keyboardWillHide` ✓ |
+  | Type switch (text → number) | `> 0` | `keyboardWillShow` ✓ |
+
+### iOS — Fix: toolbar stretch/jitter during field switch (`SafeArea` → `viewPaddingOf`)
+
+- **Root cause**: `SafeArea` inside the toolbar row subscribes to `MediaQuery.viewInsets`. When the user switches focus between two text fields, Flutter's engine temporarily clears the `TextInput` client, which causes `MediaQuery.viewInsets.bottom` to briefly reset to 0. `SafeArea` immediately adds ~34 px of home-indicator padding (since it thinks the keyboard is gone), stretching the toolbar for one frame. A frame later, `viewInsets` is restored and `SafeArea` removes the padding — the toolbar snaps back.
+
+- **Fix — Dart (`KeyboardToolbar`)**: Replaced `SafeArea` with a `ValueListenableBuilder` driven by `animation.heightNotifier`. Bottom padding is computed as `(MediaQuery.viewPaddingOf(context).bottom − kbHeight).clamp(0, safeBottom)`. `viewPaddingOf` returns the physical device safe-area constant (home-indicator height), which never changes with keyboard state — the toolbar height is now stable across all field switches.
+
+### `KeyboardAwareScrollView` — Synchronous delta translation (zero-jitter dismiss)
+
+- **Root cause**: Bottom padding shrank per-frame via `_onHeightChanged`, causing `maxScrollExtent` to decrease each frame. When `pixels > maxScrollExtent`, `BouncingScrollPhysics` produced a "scroll up → spring back" glitch. The previous safety-clamp (`jumpTo` in `didHide`) fired after the frame was already painted, adding a second visible snap.
+
+- **Fix** — three coordinated changes:
+
+  1. **Single source of truth**: `_paddingNotifier` is updated exclusively inside `_onHeightChanged`. Removed the direct assignments that were in `didShow` and `didHide`, ensuring `heightDelta` is never accidentally zeroed before the clamp runs on the last frame.
+
+  2. **Synchronous delta translation**: `jumpTo(expectedMaxExtent)` runs _before_ `_paddingNotifier.value = newHeight` so `pos.maxScrollExtent` still reflects the old layout when `expectedMaxExtent = (maxScrollExtent − heightDelta).clamp(0, ∞)` is computed. Both `pixels` and `maxScrollExtent` change by the same delta in the same frame — no spring lag, no 1-frame jitter.
+
+  3. **Clamp to `expectedMaxExtent` not `pixels − Δ`**: Prevents over-scrolling when `pixels` is far above the new max.
+
+### `KeyboardAwareScrollView` — Kill switch for stale `animateTo`
+
+- Added `_scrollController.position.jumpTo(position.pixels)` in `willHide` and `didHide` handlers. Calls `goIdle()` on the scroll position, immediately stopping any in-flight `animateTo` from `_scrollToFocusedInput` before the keyboard starts or finishes hiding.
+
+### `KeyboardAwareScrollView` — Duration-aware scroll trigger in `didShow`
+
+- **Root cause**: On Android, static keyboard type switches (e.g. numpad → text) are handled by `setOnApplyWindowInsetsListener` which emits `didShow` with `duration = 0` — no `keyboardMove` frames are produced, so `heightNotifier` is never updated. `_paddingNotifier` remained at the old keyboard height, `maxScrollExtent` was stale, and `targetOffset` was clamped to the wrong value, leaving the focused field partially hidden.
+
+- **Fix**: When `didShow` carries `duration == 0` (instant switch), `_paddingNotifier.value` is set explicitly to the new height before queuing `addPostFrameCallback` — this forces `SingleChildScrollView` to rebuild with the correct `maxScrollExtent` before `_scrollToFocusedInput` runs. When `duration > 0` (animated show), `_paddingNotifier` has already been tracking per-frame via `_onHeightChanged` so `_scrollToFocusedInput` is called directly without delay.
+
+### `KeyboardGeometryService` — Plain `TextField` ancestor detection
+
+- **Root cause**: `resolveTargetContext` only matched `FormField` subclasses (`TextFormField`). Plain `TextField` and multiline (`maxLines > 1`) `TextField` widgets were not caught — the traversal fell back to the inner `EditableText` bounds, which excludes the bottom border and padding. The focused field's bottom edge was measured too high, leaving the border hidden behind the keyboard.
+
+- **Fix**: Added `element.widget.runtimeType.toString() == 'TextField'` to the ancestor check (same string-comparison pattern used for `KeyboardScrollBoundary` to avoid circular imports). `FormField` still takes priority when found higher in the tree (e.g. `TextFormField`).
+
+### Example — iOS keyboard preload on startup
+
+- Added `KeyboardController.preload()` call in `_MyAppState.initState` via `addPostFrameCallback`. Warms up the iOS keyboard cache after the first frame so any screen's first keyboard appearance is instant with no cold-start delay.
+
+---
+
 ## v1.0.1
 
 ### Android — Critical fix: keyboard-type switch height tracking

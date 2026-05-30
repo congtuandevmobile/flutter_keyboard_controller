@@ -36,7 +36,14 @@ class KeyboardGeometryService {
         result = element;
         return false;
       }
-      if (element.widget is FormField) result = element;
+      // FormField covers TextFormField (includes label + error text).
+      // TextField covers plain TextField and multiline variants — FocusNode
+      // attaches to the inner EditableText, so without this check the bounds
+      // would exclude the border and bottom padding.
+      if (element.widget is FormField ||
+          element.widget.runtimeType.toString() == 'TextField') {
+        result = element;
+      }
       return true;
     });
 

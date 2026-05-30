@@ -177,9 +177,26 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     }
   }
 
-  // Always follow keyboard height per-frame — appear AND dismiss.
+  // Single source of truth for _paddingNotifier.
+  // jumpTo runs BEFORE _paddingNotifier.value = newHeight so pos.maxScrollExtent
+  // still reflects the old layout when expectedMaxExtent is computed.
+  // heightDelta > 0 covers every frame the keyboard shrinks — animated dismiss,
+  // instant dismiss (Done button), and keyboard type-switch — without requiring
+  // _isDismissing, which can be skipped when willHide is not fired by the OS.
   void _onHeightChanged() {
-    _paddingNotifier.value = _animation?.heightNotifier.value ?? 0;
+    final newHeight = _animation?.heightNotifier.value ?? 0.0;
+    final heightDelta = _paddingNotifier.value - newHeight;
+
+    if (heightDelta > 0 && _scrollController.hasClients) {
+      final pos = _scrollController.position;
+      final expectedMaxExtent =
+          (pos.maxScrollExtent - heightDelta).clamp(0.0, double.infinity);
+      if (pos.pixels > expectedMaxExtent) {
+        pos.jumpTo(expectedMaxExtent);
+      }
+    }
+
+    _paddingNotifier.value = newHeight;
   }
 
   void _onAnimationEvent() {
@@ -189,6 +206,11 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
     switch (event.type) {
       case KeyboardEventType.willHide:
         _isDismissing = true;
+        // Stop any in-flight animateTo from _scrollToFocusedInput so it doesn't
+        // continue animating to a position that may exceed the post-dismiss max.
+        if (_scrollController.hasClients) {
+          _scrollController.position.jumpTo(_scrollController.position.pixels);
+        }
 
       case KeyboardEventType.willShow:
         // iOS field switch: willHide → willShow fires immediately.
@@ -197,21 +219,29 @@ class _KeyboardAwareScrollViewState extends State<KeyboardAwareScrollView>
       case KeyboardEventType.didShow:
         _isDismissing = false;
         _lastKeyboardHeight = event.height;
-        _paddingNotifier.value = event.height;
-        _scrollToFocusedInput();
+        // Instant switch (duration == 0, e.g. Android static keyboard change):
+        // heightNotifier is not driven by keyboardMove frames so _paddingNotifier
+        // is still at the old keyboard height. Manually push the new height so
+        // SingleChildScrollView rebuilds with correct maxScrollExtent before scroll.
+        // Animated show (duration > 0): _paddingNotifier was already tracking
+        // per-frame via _onHeightChanged — call directly, no delay needed.
+        if (event.duration == 0) {
+          _paddingNotifier.value = event.height;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _scrollToFocusedInput();
+          });
+        } else {
+          _scrollToFocusedInput();
+        }
 
       case KeyboardEventType.didHide:
         _isDismissing = false;
         _lastKeyboardHeight = 0;
-        _paddingNotifier.value = 0;
-        // Safety clamp after padding snaps to 0.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_scrollController.hasClients) return;
-          final pos = _scrollController.position;
-          if (pos.pixels > pos.maxScrollExtent) {
-            _scrollController.jumpTo(pos.maxScrollExtent);
-          }
-        });
+        // Fail-safe for instant dismiss (e.g. Done button) where willHide may
+        // be skipped by the OS: stop any physics animation still running.
+        if (_scrollController.hasClients) {
+          _scrollController.position.jumpTo(_scrollController.position.pixels);
+        }
 
       default:
         break;
