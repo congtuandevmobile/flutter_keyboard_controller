@@ -185,16 +185,22 @@ class FlutterKeyboardControllerPlugin :
                 animation: WindowInsetsAnimationCompat,
                 bounds: WindowInsetsAnimationCompat.BoundsCompat,
             ): WindowInsetsAnimationCompat.BoundsCompat {
-                val rootInsets = ViewCompat.getRootWindowInsets(decorView)
-                val navHeight =
-                    rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
                 val density = decorView.resources.displayMetrics.density
 
-                // endHeight = max(0, bounds.upperBound.bottom - navHeight)
-                endHeight = max(0, bounds.upperBound.bottom)
+                // Android lays out the view to its TARGET state before onStart fires,
+                // so getRootWindowInsets() returns the destination insets — not the
+                // current ones. This is the only reliable way to determine direction:
+                //   targetImeBottom == 0  → keyboard is closing   → willHide
+                //   targetImeBottom  > 0  → keyboard opening/switching → willShow
+                // Using bounds.upperBound (always > 0) or startHeight (breaks on
+                // type-switch: text 800px → emoji 950px) both produce wrong results.
+                val rootInsets = ViewCompat.getRootWindowInsets(decorView)
+                val targetImeBottom =
+                    rootInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
 
-                val endDp = endHeight.toDouble() / density
+                endHeight = targetImeBottom
                 val isShowing = endHeight > 0
+                val endDp = endHeight.toDouble() / density
 
                 emitEvent(
                     type = if (isShowing) "keyboardWillShow" else "keyboardWillHide",

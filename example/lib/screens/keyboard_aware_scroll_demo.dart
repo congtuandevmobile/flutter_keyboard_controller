@@ -34,8 +34,7 @@ class KeyboardAwareScrollDemo extends StatelessWidget {
           for (int i = 1; i <= 10; i++) ...[
             TextField(
               decoration: InputDecoration(labelText: 'Field $i'),
-              textInputAction:
-                  i < 10 ? TextInputAction.next : TextInputAction.done,
+              textInputAction: TextInputAction.done,
             ),
             const SizedBox(height: 16),
           ],

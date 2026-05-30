@@ -113,7 +113,7 @@ class _KeyboardToolbarFormDemoState extends State<KeyboardToolbarFormDemo> {
                       ? 'Required' : null,
                 ),
                 keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next,
+                textInputAction: TextInputAction.done,
               ),
               const SizedBox(height: 12),
               TextField(
@@ -123,7 +123,7 @@ class _KeyboardToolbarFormDemoState extends State<KeyboardToolbarFormDemo> {
                   errorText: _submitted && _nameController.text.isEmpty
                       ? 'Required' : null,
                 ),
-                textInputAction: TextInputAction.next,
+                textInputAction: TextInputAction.done,
               ),
               const SizedBox(height: 12),
               // Bottom sheet — toolbar should hide, then re-appear
@@ -185,7 +185,7 @@ class _KeyboardToolbarFormDemoState extends State<KeyboardToolbarFormDemo> {
               TextField(
                 controller: _cityController,
                 decoration: const InputDecoration(labelText: 'City'),
-                textInputAction: TextInputAction.next,
+                textInputAction: TextInputAction.done,
               ),
               const SizedBox(height: 12),
               TextField(

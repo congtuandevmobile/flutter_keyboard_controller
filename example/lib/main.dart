@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_keyboard_controller/flutter_keyboard_controller.dart';
 
@@ -7,8 +9,23 @@ void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isIOS) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        KeyboardController.preload();
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
