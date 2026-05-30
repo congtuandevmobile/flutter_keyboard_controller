@@ -1,3 +1,23 @@
+## v1.0.3
+
+### Performance — iOS: zero-allocation event emission
+
+- **Before**: `emit()` created a new `[String: Any]` dictionary literal on every call — 60 heap allocations per second during keyboard animation (CADisplayLink ticks at 60 fps).
+- **After**: Pre-allocated `reusableEvent` dictionary is mutated in-place each call. `FlutterEventSink` serializes synchronously on the main thread before the next tick, so there is no data-race risk. Result: 0 allocations per frame during animation.
+
+### Performance — Android: cached display density
+
+- **Before**: `decorView.resources.displayMetrics.density` was read in `onStart`, `onProgress` (called 60× per second), and `onEnd` — three redundant property traversals per animation that always return the same value.
+- **After**: `density` is captured once in `onPrepare` (fires before the animation begins) and reused across all three callbacks. Display density never changes mid-animation.
+
+### Performance — Dart: `KeyboardGeometryService` context cache + type check
+
+- **Expando cache**: `resolveTargetContext` previously walked the element-tree ancestor chain on every scroll trigger for every focus change. Results are now cached per `FocusNode` in a weak-keyed `Expando` — subsequent calls for the same focused field return in O(1) without traversal. Cache entries are invalidated automatically when the `FocusNode` is garbage-collected or its context is unmounted.
+
+- **`is TextField` instead of `toString()`**: The plain-`TextField` ancestor check was `element.widget.runtimeType.toString() == 'TextField'`, which allocates a `String` object per element during traversal. Replaced with `element.widget is TextField` (direct vtable type check, zero allocation) after adding a non-circular `package:flutter/material.dart` import for `TextField` only.
+
+---
+
 ## v1.0.2
 
 ### Android — Critical fix: `onStart` always fired `willShow` regardless of direction
