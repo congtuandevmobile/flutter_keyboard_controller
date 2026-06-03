@@ -41,6 +41,7 @@ class FlutterKeyboardControllerPlugin :
     // static setOnApplyWindowInsetsListener from emitting duplicate events
     // when the animated callback is already handling the same change.
     private var isAnimating = false
+    private var isListenersAttached = false
 
     // ── FlutterPlugin ─────────────────────────────────────────────────────────
 
@@ -102,6 +103,19 @@ class FlutterKeyboardControllerPlugin :
                 result.success(null)
             }
 
+            // Enables edge-to-edge rendering and starts IME inset tracking.
+            // Called from Dart in a postFrameCallback so Flutter's SurfaceView
+            // is fully initialised before we modify the window.
+            "setupEdgeToEdge" -> {
+                // Called from Dart postFrameCallback — Flutter has already
+                // rendered its first frame so the SurfaceView is stable.
+                activity?.let { act ->
+                    WindowCompat.setDecorFitsSystemWindows(act.window, false)
+                    setupInsetListeners(act.window.decorView)
+                }
+                result.success(null)
+            }
+
             // iOS-only stubs — return success so Dart code doesn't crash
             "preload", "focusNext", "focusPrev" -> result.success(null)
 
@@ -113,14 +127,6 @@ class FlutterKeyboardControllerPlugin :
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
-        // Delay setup to avoid racing with Flutter's SurfaceView initialization.
-        // setDecorFitsSystemWindows(false) inside setupKeyboardTracking() triggers
-        // a window re-layout; if called synchronously here it can conflict with
-        // Flutter attaching its SurfaceView and cause a black screen on cold
-        // starts (e.g. tapping a Live Activity notification).
-        binding.activity.window.decorView.post {
-            if (activity != null) setupKeyboardTracking()
-        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -143,17 +149,15 @@ class FlutterKeyboardControllerPlugin :
     private fun setupKeyboardTracking() {
         val act = activity ?: return
         val decorView = act.window.decorView
-
         WindowCompat.setDecorFitsSystemWindows(act.window, false)
+        setupInsetListeners(decorView)
+    }
+
+    private fun setupInsetListeners(decorView: View) {
+        if (isListenersAttached) return
+        isListenersAttached = true
 
         // ── Static insets safety net ──────────────────────────────────────────
-        // WindowInsetsAnimationCompat.Callback only fires when Android runs an
-        // animation. When switching keyboard types (e.g. text → number) Android
-        // sometimes performs a *static* layout pass with no animation, so
-        // onProgress/onEnd are never called and heightNotifier gets stuck at the
-        // old height. setOnApplyWindowInsetsListener fires on EVERY insets
-        // change (animated or not) and acts as a fallback to push the correct
-        // height when no animation is in progress.
         ViewCompat.setOnApplyWindowInsetsListener(decorView) { view, insets ->
             if (!isAnimating) {
                 val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
@@ -174,8 +178,6 @@ class FlutterKeyboardControllerPlugin :
             ViewCompat.onApplyWindowInsets(view, insets)
         }
 
-        // Allow insets to reach the callback without Flutter blocking them.
-        // We use CONTINUE_ON_SUBTREE so Flutter's own inset handling is unaffected.
         val callback = object :
             WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
 
@@ -196,13 +198,6 @@ class FlutterKeyboardControllerPlugin :
                 bounds: WindowInsetsAnimationCompat.BoundsCompat,
             ): WindowInsetsAnimationCompat.BoundsCompat {
 
-                // Android lays out the view to its TARGET state before onStart fires,
-                // so getRootWindowInsets() returns the destination insets — not the
-                // current ones. This is the only reliable way to determine direction:
-                //   targetImeBottom == 0  → keyboard is closing   → willHide
-                //   targetImeBottom  > 0  → keyboard opening/switching → willShow
-                // Using bounds.upperBound (always > 0) or startHeight (breaks on
-                // type-switch: text 800px → emoji 950px) both produce wrong results.
                 val rootInsets = ViewCompat.getRootWindowInsets(decorView)
                 val targetImeBottom =
                     rootInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
@@ -281,6 +276,7 @@ class FlutterKeyboardControllerPlugin :
         ViewCompat.setOnApplyWindowInsetsListener(decorView, null)
         ViewCompat.setWindowInsetsAnimationCallback(decorView, null)
         isAnimating = false
+        isListenersAttached = false
     }
 
     private val reusableEventMap = HashMap<String, Any>()

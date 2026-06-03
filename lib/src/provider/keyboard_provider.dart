@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
@@ -65,12 +66,25 @@ class _KeyboardProviderState extends State<KeyboardProvider> {
   static const _eventChannel =
       EventChannel('flutter_keyboard_controller/keyboard_events');
 
+  static const _methodChannel = MethodChannel('flutter_keyboard_controller');
+
   @override
   void initState() {
     super.initState();
     _animation = KeyboardAnimation();
     if (widget.enabled) {
       _startListening();
+      // Android only: trigger setDecorFitsSystemWindows(false) after Flutter's
+      // first frame. Calling it synchronously from onAttachedToActivity() races
+      // with Flutter's SurfaceView / EGL-Vulkan initialisation and causes a
+      // black screen on cold-start from notifications (e.g. Live Activity).
+      // iOS does not need this — keyboard tracking there uses NotificationCenter
+      // and has no equivalent window-configuration race condition.
+      if (Platform.isAndroid) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _methodChannel.invokeMethod<void>('setupEdgeToEdge').catchError((_) {});
+        });
+      }
     }
   }
 

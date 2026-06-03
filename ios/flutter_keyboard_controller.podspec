@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'flutter_keyboard_controller'
-  s.version          = '1.0.3'
+  s.version          = '1.0.4'
   s.summary          = 'Flutter plugin for targeted keyboard animation via ValueNotifier — chat, toolbar, and sticky widgets included.'
   s.description      = <<-DESC
     Provides frame-by-frame keyboard animation tracking for Flutter. 
