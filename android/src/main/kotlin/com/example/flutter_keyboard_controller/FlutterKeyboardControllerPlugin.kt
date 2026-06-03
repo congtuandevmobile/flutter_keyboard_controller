@@ -113,7 +113,14 @@ class FlutterKeyboardControllerPlugin :
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
-        setupKeyboardTracking()
+        // Delay setup to avoid racing with Flutter's SurfaceView initialization.
+        // setDecorFitsSystemWindows(false) inside setupKeyboardTracking() triggers
+        // a window re-layout; if called synchronously here it can conflict with
+        // Flutter attaching its SurfaceView and cause a black screen on cold
+        // starts (e.g. tapping a Live Activity notification).
+        binding.activity.window.decorView.post {
+            if (activity != null) setupKeyboardTracking()
+        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
@@ -175,17 +182,19 @@ class FlutterKeyboardControllerPlugin :
             // Heights captured at animation start / end
             private var startHeight = 0
             private var endHeight = 0
+            // Cached once per animation — density never changes mid-animation.
+            private var density = decorView.resources.displayMetrics.density
 
             override fun onPrepare(animation: WindowInsetsAnimationCompat) {
                 isAnimating = true
                 startHeight = currentHeight.toInt()
+                density = decorView.resources.displayMetrics.density
             }
 
             override fun onStart(
                 animation: WindowInsetsAnimationCompat,
                 bounds: WindowInsetsAnimationCompat.BoundsCompat,
             ): WindowInsetsAnimationCompat.BoundsCompat {
-                val density = decorView.resources.displayMetrics.density
 
                 // Android lays out the view to its TARGET state before onStart fires,
                 // so getRootWindowInsets() returns the destination insets — not the
@@ -220,7 +229,6 @@ class FlutterKeyboardControllerPlugin :
                     // insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
                 // val actualPx = max(0, imeBottom - navBottom)
                 val actualPx = imeBottom
-                val density = decorView.resources.displayMetrics.density
                 val heightDp = actualPx.toDouble() / density
 
                 currentHeight = heightDp
@@ -250,8 +258,6 @@ class FlutterKeyboardControllerPlugin :
                 //    rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
                 // val actualPx = max(0, imeBottom - navBottom)
                 val actualPx = max(0, imeBottom)
-
-                val density = decorView.resources.displayMetrics.density
                 val heightDp = actualPx.toDouble() / density
 
                 currentHeight = heightDp

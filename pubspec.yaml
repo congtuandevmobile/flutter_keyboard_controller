@@ -4,7 +4,7 @@ description: >-
   Includes KeyboardChatScrollView, KeyboardToolbar, KeyboardStickyView,
   KeyboardAwareScrollView, and KeyboardAvoidingView — everything you need
   to build polished keyboard-aware UIs on iOS and Android.
-version: 1.0.2
+version: 1.0.3
 homepage: https://github.com/congtuandevmobile/flutter_keyboard_controller
 
 environment:

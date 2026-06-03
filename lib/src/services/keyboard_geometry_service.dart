@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show TextField;
 import 'package:flutter/widgets.dart';
 
 /// Stateless service that handles DOM traversal and scroll geometry
@@ -7,6 +8,10 @@ import 'package:flutter/widgets.dart';
 /// rendering a widget tree.
 class KeyboardGeometryService {
   KeyboardGeometryService._();
+
+  // Cache resolved scroll-target context per FocusNode.
+  // Expando uses weak references — entries are GC'd with their FocusNode.
+  static final Expando<BuildContext> _targetContextCache = Expando();
 
   /// Walks ancestors from [focused] to find the best scroll target context.
   ///
@@ -24,6 +29,11 @@ class KeyboardGeometryService {
       return customFinder(focused) ?? focused.context;
     }
 
+    // Return cached context if still mounted — avoids re-traversing the
+    // element tree on every scroll trigger for the same focused field.
+    final cached = _targetContextCache[focused];
+    if (cached != null && (cached as Element).mounted) return cached;
+
     BuildContext? result;
     focused.context?.visitAncestorElements((element) {
       if (element.widget is Scrollable ||
@@ -37,17 +47,18 @@ class KeyboardGeometryService {
         return false;
       }
       // FormField covers TextFormField (includes label + error text).
-      // TextField covers plain TextField and multiline variants — FocusNode
-      // attaches to the inner EditableText, so without this check the bounds
-      // would exclude the border and bottom padding.
-      if (element.widget is FormField ||
-          element.widget.runtimeType.toString() == 'TextField') {
+      // TextField: uses `is` operator (no circular import) — avoids toString()
+      // per element. FocusNode attaches to inner EditableText, so without this
+      // the bounds exclude border and bottom padding.
+      if (element.widget is FormField || element.widget is TextField) {
         result = element;
       }
       return true;
     });
 
-    return result ?? focused.context;
+    final resolved = result ?? focused.context;
+    if (resolved != null) _targetContextCache[focused] = resolved;
+    return resolved;
   }
 
   /// Returns the scroll offset needed to bring [targetContext] into view

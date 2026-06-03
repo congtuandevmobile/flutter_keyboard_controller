@@ -37,6 +37,10 @@ public class FlutterKeyboardControllerPlugin: NSObject, FlutterPlugin {
     private var animationCurve: UIView.AnimationCurve = .easeInOut
 
     private var pendingDidHide = false
+    // Pre-allocated event map — avoids a heap allocation on every CADisplayLink tick.
+    private var reusableEvent: [String: Any] = [
+        "type": "", "height": 0.0, "progress": 0.0, "duration": 0.0, "timestamp": 0.0,
+    ]
 
     // ── FlutterPlugin ─────────────────────────────────────────────────────────
 
@@ -230,13 +234,12 @@ public class FlutterKeyboardControllerPlugin: NSObject, FlutterPlugin {
 
     private func emit(type: String, height: Double, progress: Double, duration: Double) {
         guard let sink = eventSink else { return }
-        sink([
-            "type": type,
-            "height": height,
-            "progress": progress,
-            "duration": duration,
-            "timestamp": Date().timeIntervalSince1970 * 1000,
-        ])
+        reusableEvent["type"] = type
+        reusableEvent["height"] = height
+        reusableEvent["progress"] = progress
+        reusableEvent["duration"] = duration
+        reusableEvent["timestamp"] = Date().timeIntervalSince1970 * 1000
+        sink(reusableEvent)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
