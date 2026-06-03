@@ -113,7 +113,14 @@ class FlutterKeyboardControllerPlugin :
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
         activity = binding.activity
-        setupKeyboardTracking()
+        // Delay setup to avoid racing with Flutter's SurfaceView initialization.
+        // setDecorFitsSystemWindows(false) inside setupKeyboardTracking() triggers
+        // a window re-layout; if called synchronously here it can conflict with
+        // Flutter attaching its SurfaceView and cause a black screen on cold
+        // starts (e.g. tapping a Live Activity notification).
+        binding.activity.window.decorView.post {
+            if (activity != null) setupKeyboardTracking()
+        }
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
